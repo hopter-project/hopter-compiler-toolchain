@@ -1,14 +1,14 @@
-From 02711d52b5c08a14b1d397dbdcd1d097f92f7484 Mon Sep 17 00:00:00 2001
+From 92af1d9ef4e58fe12b93be33ee221d7f9ae00e44 Mon Sep 17 00:00:00 2001
 From: Zhiyao Ma <zhiyao.ma.98@gmail.com>
-Date: Wed, 11 Sep 2024 21:06:12 -0400
+Date: Thu, 14 Nov 2024 11:16:18 -0500
 Subject: [PATCH] Instrument drop handlers.
 
 ---
- compiler/rustc_mir_transform/src/shim.rs | 311 ++++++++++++++++++++++-
- 1 file changed, 306 insertions(+), 5 deletions(-)
+ compiler/rustc_mir_transform/src/shim.rs | 329 ++++++++++++++++++++++-
+ 1 file changed, 324 insertions(+), 5 deletions(-)
 
 diff --git a/compiler/rustc_mir_transform/src/shim.rs b/compiler/rustc_mir_transform/src/shim.rs
-index 6835a39cf36..4de5b5726ff 100644
+index 6835a39cf36..6831d54f655 100644
 --- a/compiler/rustc_mir_transform/src/shim.rs
 +++ b/compiler/rustc_mir_transform/src/shim.rs
 @@ -1,3 +1,4 @@
@@ -16,7 +16,7 @@ index 6835a39cf36..4de5b5726ff 100644
  use rustc_hir as hir;
  use rustc_hir::def_id::DefId;
  use rustc_hir::lang_items::LangItem;
-@@ -211,6 +212,270 @@ fn local_decls_for_sig<'tcx>(
+@@ -211,6 +212,277 @@ fn local_decls_for_sig<'tcx>(
          .collect()
  }
  
@@ -107,147 +107,115 @@ index 6835a39cf36..4de5b5726ff 100644
 +}
 +
 +/// ```plain
-+/// incr_cnt_block: {
-+///     _2 = const 0x0002_0004_usize as *mut u32;
-+///     _3 = (*_2);
-+///     (*_2) = Add(copy _3, const 1_u32);
-+///     goto -> drop_start_block;
++/// set_drop_block: {
++///     _2 = const 536870916_usize as *mut u32 (PointerWithExposedProvenance);
++///     _1 = copy (*_2);
++///     (*_2) = const 1_u32;
++///     goto -> drop_start_block
 +/// }
 +/// ```
-+fn init_incr_cnt_block<'tcx>(
++fn init_set_drop_block<'tcx>(
 +    tcx: TyCtxt<'tcx>,
 +    body: &mut Body<'tcx>,
-+    incr_cnt_block: BasicBlock,
++    set_drop_block: BasicBlock,
 +    span: Span,
-+) {
++) -> Place<'tcx> {
 +    let source_info = SourceInfo::outermost(span);
 +
-+    let value_place =
-+        load_local_value_from_addr(tcx, body, incr_cnt_block, span, 0x2000_0004, tcx.types.u32);
++    let original_value_place =
++        load_local_value_from_addr(tcx, body, set_drop_block, span, 0x2000_0004, tcx.types.u32);
 +
-+    let incremented_val = Rvalue::BinaryOp(
-+        BinOp::Add,
-+        Box::new((
-+            Operand::Copy(value_place),
-+            Operand::Constant(Box::new(ConstOperand {
-+                span,
-+                user_ty: None,
-+                const_: Const::Val(ConstValue::Scalar(Scalar::from_u32(1)), tcx.types.u32),
-+            })),
-+        )),
-+    );
-+    body[incr_cnt_block].statements.push(Statement {
++    let updated_value_place =
++        load_local_value_from_addr(tcx, body, set_drop_block, span, 0x2000_0004, tcx.types.u32);
++
++    let constant_one = Rvalue::Use(Operand::Constant(Box::new(ConstOperand {
++        span,
++        user_ty: None,
++        const_: Const::Val(ConstValue::Scalar(Scalar::from_u32(1)), tcx.types.u32),
++    })));
++
++    body[set_drop_block].statements.push(Statement {
 +        source_info,
-+        kind: StatementKind::Assign(Box::new((value_place, incremented_val))),
++        kind: StatementKind::Assign(Box::new((updated_value_place, constant_one))),
 +    });
 +
 +    store_local_value_from_addr(
 +        tcx,
 +        body,
-+        incr_cnt_block,
++        set_drop_block,
 +        span,
 +        0x2000_0004,
 +        tcx.types.u32,
-+        Rvalue::Use(Operand::Copy(value_place)),
++        Rvalue::Use(Operand::Copy(updated_value_place)),
 +    );
++
++    return original_value_place;
 +}
 +
 +/// ```plain
-+/// decr_cnt_block: {
-+///     _4 = const 0x0002_0004_usize as *mut u32;
-+///     _5 = (*_4);
-+///     (*_4) = Sub(copy _5, const 1_u32);
-+///     switchInt(copy _5) -> [0: check_flag_block, otherwise: return_block];
++/// check_drop_block: {
++///     switchInt(move _1) -> [0: check_unwind_block, otherwise: return_block];
 +/// }
 +/// ```
-+fn init_decr_cnt_block<'tcx>(
-+    tcx: TyCtxt<'tcx>,
++fn init_check_drop_block<'tcx>(
 +    body: &mut Body<'tcx>,
-+    decr_cnt_block: BasicBlock,
-+    check_flag_block: BasicBlock,
++    in_drop_flag_place: Place<'tcx>,
++    check_drop_block: BasicBlock,
++    check_unwind_block: BasicBlock,
 +    return_block: BasicBlock,
 +    span: Span,
 +) {
 +    let source_info = SourceInfo::outermost(span);
 +
-+    let value_place =
-+        load_local_value_from_addr(tcx, body, decr_cnt_block, span, 0x2000_0004, tcx.types.u32);
-+
-+    let decremented_val = Rvalue::BinaryOp(
-+        BinOp::Sub,
-+        Box::new((
-+            Operand::Copy(value_place),
-+            Operand::Constant(Box::new(ConstOperand {
-+                span,
-+                user_ty: None,
-+                const_: Const::Val(ConstValue::Scalar(Scalar::from_u32(1)), tcx.types.u32),
-+            })),
-+        )),
-+    );
-+    body[decr_cnt_block].statements.push(Statement {
-+        source_info,
-+        kind: StatementKind::Assign(Box::new((value_place, decremented_val))),
-+    });
-+
-+    store_local_value_from_addr(
-+        tcx,
-+        body,
-+        decr_cnt_block,
-+        span,
-+        0x2000_0004,
-+        tcx.types.u32,
-+        Rvalue::Use(Operand::Copy(value_place)),
-+    );
-+
-+    body[decr_cnt_block].terminator = Some(Terminator {
++    body[check_drop_block].terminator = Some(Terminator {
 +        source_info,
 +        kind: TerminatorKind::SwitchInt {
-+            discr: Operand::Copy(value_place),
-+            targets: SwitchTargets::new(iter::once((0, check_flag_block)), return_block),
++            discr: Operand::Copy(in_drop_flag_place),
++            targets: SwitchTargets::new(iter::once((0, check_unwind_block)), return_block),
 +        },
 +    });
 +}
 +
 +/// ```plain
-+/// check_flag_block: {
-+///     _6 = const 0x0002_0008_usize as *mut u32;
++/// check_unwind_block: {
++///     _5 = const 536870920_usize as *mut u32 (PointerWithExposedProvenance);
++///     _4 = copy (*_5);
++///     switchInt(move _4) -> [0: reset_drop_block, otherwise: call_unwind_block];
++/// }
++/// ```
++fn init_check_unwind_block<'tcx>(
++    tcx: TyCtxt<'tcx>,
++    body: &mut Body<'tcx>,
++    check_unwind_block: BasicBlock,
++    call_unwind_block: BasicBlock,
++    reset_drop_block: BasicBlock,
++    span: Span,
++) {
++    let source_info = SourceInfo::outermost(span);
++
++    let value_place =
++        load_local_value_from_addr(tcx, body, check_unwind_block, span, 0x2000_0008, tcx.types.u32);
++
++    body[check_unwind_block].terminator = Some(Terminator {
++        source_info,
++        kind: TerminatorKind::SwitchInt {
++            discr: Operand::Copy(value_place),
++            targets: SwitchTargets::new(iter::once((0, reset_drop_block)), call_unwind_block),
++        },
++    });
++}
++
++/// ```plain
++/// call_unwind_block: {
++///     _6 = const 0x0002_000c_usize as *fn();
 +///     _7 = (*_6);
-+///     switchInt(copy _7) -> [1: call_panic_block, otherwise: return_block];
++///     (*_7)() -> unwind continue;
 +/// }
 +/// ```
-+fn init_check_flag_block<'tcx>(
++fn init_call_unwind_block<'tcx>(
 +    tcx: TyCtxt<'tcx>,
 +    body: &mut Body<'tcx>,
-+    check_flag_block: BasicBlock,
-+    call_panic_block: BasicBlock,
-+    return_block: BasicBlock,
-+    span: Span,
-+) {
-+    let source_info = SourceInfo::outermost(span);
-+
-+    let value_place =
-+        load_local_value_from_addr(tcx, body, check_flag_block, span, 0x2000_0008, tcx.types.u32);
-+
-+    body[check_flag_block].terminator = Some(Terminator {
-+        source_info,
-+        kind: TerminatorKind::SwitchInt {
-+            discr: Operand::Copy(value_place),
-+            targets: SwitchTargets::new(iter::once((1, call_panic_block)), return_block),
-+        },
-+    });
-+}
-+
-+/// ```plain
-+/// call_panic_block: {
-+///     _8 = const 0x0002_000c_usize as *fn();
-+///     _9 = (*_8);
-+///     (*_9)() -> unwind continue;
-+/// }
-+/// ```
-+fn init_call_panic_block<'tcx>(
-+    tcx: TyCtxt<'tcx>,
-+    body: &mut Body<'tcx>,
-+    call_panic_block: BasicBlock,
++    call_unwind_block: BasicBlock,
 +    span: Span,
 +) {
 +    use rustc_middle::ty::inherent::*;
@@ -258,19 +226,19 @@ index 6835a39cf36..4de5b5726ff 100644
 +        tcx,
 +        ty::Binder::dummy(tcx.mk_fn_sig(
 +            [],
-+            Ty::new_unit(tcx),
++            Ty::new_unit(tcx), // TODO: try new_diverging_default()
 +            false,
 +            hir::Safety::Safe,
-+            rustc_target::spec::abi::Abi::C { unwind: true },
++            rustc_target::spec::abi::Abi::C { unwind: true }, // TODO: try RustCold
 +        )),
 +    );
 +
 +    let fn_ptr_place =
-+        load_local_value_from_addr(tcx, body, call_panic_block, span, 0x2000_000c, fn_ptr_type);
++        load_local_value_from_addr(tcx, body, call_unwind_block, span, 0x2000_000c, fn_ptr_type);
 +
 +    let ret_val_local = body.local_decls.push(LocalDecl::new(tcx.types.unit, span));
 +
-+    body[call_panic_block].terminator = Some(Terminator {
++    body[call_unwind_block].terminator = Some(Terminator {
 +        source_info,
 +        kind: TerminatorKind::Call {
 +            func: Operand::Copy(fn_ptr_place),
@@ -284,43 +252,85 @@ index 6835a39cf36..4de5b5726ff 100644
 +    });
 +}
 +
++/// ```plain
++/// reset_drop_block: {
++///     (*_2) = const 0_u32;
++///     goto -> return_block;
++/// }
++/// ```
++fn init_reset_drop_block<'tcx>(
++    tcx: TyCtxt<'tcx>,
++    body: &mut Body<'tcx>,
++    reset_drop_block: BasicBlock,
++    span: Span,
++) {
++    let source_info = SourceInfo::outermost(span);
++
++    let value_place =
++        load_local_value_from_addr(tcx, body, reset_drop_block, span, 0x2000_0004, tcx.types.u32);
++
++    let constant_zero = Rvalue::Use(Operand::Constant(Box::new(ConstOperand {
++        span,
++        user_ty: None,
++        const_: Const::Val(ConstValue::Scalar(Scalar::from_u32(0)), tcx.types.u32),
++    })));
++
++    body[reset_drop_block].statements.push(Statement {
++        source_info,
++        kind: StatementKind::Assign(Box::new((value_place, constant_zero))),
++    });
++
++    store_local_value_from_addr(
++        tcx,
++        body,
++        reset_drop_block,
++        span,
++        0x2000_0004,
++        tcx.types.u32,
++        Rvalue::Use(Operand::Copy(value_place)),
++    );
++}
++
  fn build_drop_shim<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId, ty: Option<Ty<'tcx>>) -> Body<'tcx> {
      debug!("build_drop_shim(def_id={:?}, ty={:?})", def_id, ty);
  
-@@ -227,8 +492,15 @@ fn build_drop_shim<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId, ty: Option<Ty<'tcx>>)
+@@ -227,8 +499,16 @@ fn build_drop_shim<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId, ty: Option<Ty<'tcx>>)
  
      let source_info = SourceInfo::outermost(span);
  
 -    let return_block = BasicBlock::new(1);
 -    let mut blocks = IndexVec::with_capacity(2);
-+    let incr_cnt_block = BasicBlock::new(0);
++    let set_drop_block = BasicBlock::new(0);
 +    let drop_start_block = BasicBlock::new(1);
 +    let drop_end_block = BasicBlock::new(2);
-+    let decr_cnt_block = BasicBlock::new(3);
-+    let check_flag_block = BasicBlock::new(4);
-+    let call_panic_block = BasicBlock::new(5);
-+    let return_block = BasicBlock::new(6);
-+    let mut blocks = IndexVec::with_capacity(7);
++    let check_drop_block = BasicBlock::new(3);
++    let check_unwind_block = BasicBlock::new(4);
++    let call_unwind_block = BasicBlock::new(5);
++    let reset_drop_block = BasicBlock::new(6);
++    let return_block = BasicBlock::new(7);
++    let mut blocks = IndexVec::with_capacity(8);
 +
      let block = |blocks: &mut IndexVec<_, _>, kind| {
          blocks.push(BasicBlockData {
              statements: vec![],
-@@ -236,13 +508,42 @@ fn build_drop_shim<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId, ty: Option<Ty<'tcx>>)
+@@ -236,13 +516,52 @@ fn build_drop_shim<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId, ty: Option<Ty<'tcx>>)
              is_cleanup: false,
          })
      };
 +
-+    // incr_cnt_block
++    // set_drop_block
 +    block(&mut blocks, TerminatorKind::Goto { target: drop_start_block });
 +    // drop_start_block
 +    block(&mut blocks, TerminatorKind::Goto { target: drop_end_block });
 +    // drop_end_block
-+    block(&mut blocks, TerminatorKind::Goto { target: decr_cnt_block });
-+    // decr_cnt_block
-+    block(&mut blocks, TerminatorKind::Goto { target: check_flag_block });
-+    // check_flag_block
-+    block(&mut blocks, TerminatorKind::Goto { target: call_panic_block });
-+    // panic_call_block
++    block(&mut blocks, TerminatorKind::Goto { target: check_drop_block });
++    // check_drop_block
++    block(&mut blocks, TerminatorKind::Goto { target: check_unwind_block });
++    // check_unwind_block
++    block(&mut blocks, TerminatorKind::Goto { target: call_unwind_block });
++    // call_unwind_block
++    block(&mut blocks, TerminatorKind::Goto { target: reset_drop_block });
++    // reset_drop_block
      block(&mut blocks, TerminatorKind::Goto { target: return_block });
 +    // return_block
      block(&mut blocks, TerminatorKind::Return);
@@ -332,23 +342,31 @@ index 6835a39cf36..4de5b5726ff 100644
 +    if tcx.sess.target.llvm_target.contains("thumbv7em-none-eabi")
 +        || tcx.sess.target.llvm_target.contains("armv7em-none-eabi")
 +    {
-+        init_incr_cnt_block(tcx, &mut body, incr_cnt_block, span);
-+        init_decr_cnt_block(tcx, &mut body, decr_cnt_block, check_flag_block, return_block, span);
-+        init_check_flag_block(
-+            tcx,
++        let in_drop_flag_place = init_set_drop_block(tcx, &mut body, set_drop_block, span);
++        init_check_drop_block(
 +            &mut body,
-+            check_flag_block,
-+            call_panic_block,
++            in_drop_flag_place,
++            check_drop_block,
++            check_unwind_block,
 +            return_block,
 +            span,
 +        );
-+        init_call_panic_block(tcx, &mut body, call_panic_block, span);
++        init_check_unwind_block(
++            tcx,
++            &mut body,
++            check_unwind_block,
++            call_unwind_block,
++            reset_drop_block,
++            span,
++        );
++        init_call_unwind_block(tcx, &mut body, call_unwind_block, span);
++        init_reset_drop_block(tcx, &mut body, reset_drop_block, span);
 +    }
 +
      // The first argument (index 0), but add 1 for the return value.
      let mut dropee_ptr = Place::from(Local::new(1 + 0));
      if tcx.sess.opts.unstable_opts.mir_emit_retag {
-@@ -266,7 +567,7 @@ fn build_drop_shim<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId, ty: Option<Ty<'tcx>>)
+@@ -266,7 +585,7 @@ fn build_drop_shim<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId, ty: Option<Ty<'tcx>>)
              StatementKind::Retag(RetagKind::FnEntry, Box::new(dropee_ptr)),
          ];
          for s in new_statements {
@@ -357,7 +375,7 @@ index 6835a39cf36..4de5b5726ff 100644
                  .statements
                  .push(Statement { source_info, kind: s });
          }
-@@ -284,9 +585,9 @@ fn build_drop_shim<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId, ty: Option<Ty<'tcx>>)
+@@ -284,9 +603,9 @@ fn build_drop_shim<'tcx>(tcx: TyCtxt<'tcx>, def_id: DefId, ty: Option<Ty<'tcx>>)
                  source_info,
                  dropee,
                  (),
@@ -370,5 +388,5 @@ index 6835a39cf36..4de5b5726ff 100644
              elaborator.patch
          };
 -- 
-2.39.3 (Apple Git-146)
+2.39.5 (Apple Git-154)
 
