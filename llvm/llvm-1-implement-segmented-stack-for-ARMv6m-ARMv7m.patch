@@ -1,14 +1,14 @@
-From 6da733a4ecc24c837a772dbbb11fcdc240caa1a9 Mon Sep 17 00:00:00 2001
+From d80b1edfa77cb5fc69b40eeb031e1ae9b627acca Mon Sep 17 00:00:00 2001
 From: Zhiyao Ma <zhiyao.ma.98@gmail.com>
 Date: Wed, 11 Sep 2024 17:15:25 -0400
-Subject: [PATCH] Implement segmented stack for ARMv7em.
+Subject: [PATCH] Implement segmented stack for ARMv6m and ARMv7m.
 
 ---
  lld/ELF/Arch/ARM.cpp                     |   7 +
- llvm/lib/Target/ARM/ARMFrameLowering.cpp | 156 ++++++++++++++++++++++-
+ llvm/lib/Target/ARM/ARMFrameLowering.cpp | 226 ++++++++++++++++++++++-
  llvm/lib/Target/ARM/ARMInstrInfo.td      |   4 +
  llvm/lib/Target/ARM/ARMInstrThumb.td     |   5 +
- 4 files changed, 169 insertions(+), 3 deletions(-)
+ 4 files changed, 239 insertions(+), 3 deletions(-)
 
 diff --git a/lld/ELF/Arch/ARM.cpp b/lld/ELF/Arch/ARM.cpp
 index 687f9499009d..fa1c0e46168f 100644
@@ -33,7 +33,7 @@ index 687f9499009d..fa1c0e46168f 100644
 +  return true;
 +}
 diff --git a/llvm/lib/Target/ARM/ARMFrameLowering.cpp b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
-index 9b54dd4e4e61..480de60d9f60 100644
+index 9b54dd4e4e61..20c2d9b73a0a 100644
 --- a/llvm/lib/Target/ARM/ARMFrameLowering.cpp
 +++ b/llvm/lib/Target/ARM/ARMFrameLowering.cpp
 @@ -2987,8 +2987,9 @@ void ARMFrameLowering::adjustForSegmentedStacks(
@@ -70,78 +70,83 @@ index 9b54dd4e4e61..480de60d9f60 100644
    // We will use two of the callee save registers as scratch registers so we
    // need to save those registers onto the stack.
    // We will use SR0 to hold stack limit and SR1 to hold the stack size
-@@ -3417,6 +3424,149 @@ void ARMFrameLowering::adjustForSegmentedStacks(
+@@ -3417,6 +3424,219 @@ void ARMFrameLowering::adjustForSegmentedStacks(
          .addCFIIndex(CFIIndex);
    }
  
 +# else
-+
-+  // If r12 is live, preserve its original value before using it as the
-+  // scratch register.
-+  if (GetMBB->isLiveIn(ARM::R12)) {
-+    BuildMI(GetMBB, DL, TII.get(ARM::t2STR_PRE), ARM::SP)
-+        .addReg(ARM::R12)
-+        .addReg(ARM::SP)
-+        .addImm(-4)
-+        .add(predOps(ARMCC::AL));
-+  }
-+
-+  // mov r12, 0x20000000
-+  BuildMI(GetMBB, DL, TII.get(ARM::t2MOVi), ARM::R12)
-+      .addImm(0x20000000)
-+      .add(predOps(ARMCC::AL))
-+      .addReg(ARM::NoRegister)
-+      .addReg(ARM::NoRegister);
-+
-+  // ldr r12, [r12]
-+  BuildMI(GetMBB, DL, TII.get(ARM::t2LDRi12), ARM::R12)
-+      .addReg(ARM::R12)
-+      .addImm(0)
-+      .add(predOps(ARMCC::AL));
-+
-+  // sub r12, sp, r12 ; r12 now holds remaining stacklet space
-+  BuildMI(GetMBB, DL, TII.get(ARM::t2SUBrs), ARM::R12)
-+      .addReg(ARM::SP)
-+      .addReg(ARM::R12)
-+      .addImm(ARM_AM::lsl)
-+      .addImm(ARMCC::AL)
-+      .addImm(0)
-+      .addReg(ARM::CPSR, RegState::Define);
-+
-+  if (AlignedStackSize < 1024) {
-+    // cmp r12, #func_stack_size  (stack size < 1024 and is multiple of 4)
-+    BuildMI(GetMBB, DL, TII.get(ARM::t2CMPri))
-+        .addReg(ARM::R12)
-+        .addImm(AlignedStackSize)
-+        .add(predOps(ARMCC::AL));
-+
-+    // Restore r12 if previously preserved.
++  if (Thumb2) {
++    // If r12 is live, preserve its original value before using it as the
++    // scratch register.
 +    if (GetMBB->isLiveIn(ARM::R12)) {
-+      BuildMI(GetMBB, DL, TII.get(ARM::t2LDR_POST), ARM::R12)
++      BuildMI(GetMBB, DL, TII.get(ARM::t2STR_PRE), ARM::SP)
++          .addReg(ARM::R12)
 +          .addReg(ARM::SP)
-+          .addReg(ARM::SP)
-+          .addImm(4)
++          .addImm(-4)
 +          .add(predOps(ARMCC::AL));
 +    }
 +
-+    // This jump is taken remaining space is greater or equal than requested
-+    // size
-+    BuildMI(GetMBB, DL, TII.get(ARM::tBcc))
-+        .addMBB(PostStackMBB)
-+        .addImm(ARMCC::GE)
-+        .addReg(ARM::CPSR);
-+  } else if (AlignedStackSize < 4096) {
-+    BuildMI(GetMBB, DL, TII.get(ARM::t2SUBri12), ARM::R12)
-+        .addReg(ARM::R12)
-+        .addImm(AlignedStackSize)
-+        .add(predOps(ARMCC::AL));
++    // mov r12, 0x20000000
++    BuildMI(GetMBB, DL, TII.get(ARM::t2MOVi), ARM::R12)
++        .addImm(0x20000000)
++        .add(predOps(ARMCC::AL))
++        .addReg(ARM::NoRegister)
++        .addReg(ARM::NoRegister);
 +
-+    // cmp r12, #func_stack_size  (stack size < 1024 and is multiple of 4)
-+    BuildMI(GetMBB, DL, TII.get(ARM::t2CMPri))
++    // ldr r12, [r12]
++    BuildMI(GetMBB, DL, TII.get(ARM::t2LDRi12), ARM::R12)
 +        .addReg(ARM::R12)
 +        .addImm(0)
 +        .add(predOps(ARMCC::AL));
 +
++    // sub r12, sp, r12 ; r12 now holds remaining stacklet space
++    BuildMI(GetMBB, DL, TII.get(ARM::t2SUBrs), ARM::R12)
++        .addReg(ARM::SP)
++        .addReg(ARM::R12)
++        .addImm(ARM_AM::lsl)
++        .addImm(ARMCC::AL)
++        .addImm(0)
++        .addReg(ARM::CPSR, RegState::Define);
++
++    if (AlignedStackSize < 1024) {
++      // cmp r12, #func_stack_size  (stack size < 1024 and is multiple of 4)
++      BuildMI(GetMBB, DL, TII.get(ARM::t2CMPri))
++          .addReg(ARM::R12)
++          .addImm(AlignedStackSize)
++          .add(predOps(ARMCC::AL));
++    } else if (AlignedStackSize < 4096) {
++
++      BuildMI(GetMBB, DL, TII.get(ARM::t2SUBri12), ARM::R12)
++          .addReg(ARM::R12)
++          .addImm(AlignedStackSize)
++          .add(predOps(ARMCC::AL));
++
++      // cmp r12, #func_stack_size  (stack size < 1024 and is multiple of 4)
++      BuildMI(GetMBB, DL, TII.get(ARM::t2CMPri))
++          .addReg(ARM::R12)
++          .addImm(0)
++          .add(predOps(ARMCC::AL));
++
++    } else if (AlignedStackSize < 65536) {
++      uint64_t bits7_0 = AlignedStackSize & 0xff;
++      uint64_t bits15_8 = AlignedStackSize & 0xff00;
++
++      BuildMI(GetMBB, DL, TII.get(ARM::t2SUBri), ARM::R12)
++          .addReg(ARM::R12)
++          .addImm(bits7_0)
++          .add(predOps(ARMCC::AL))
++          .addReg(ARM::CPSR, RegState::Define);
++      ;
++
++      BuildMI(GetMBB, DL, TII.get(ARM::t2SUBri), ARM::R12)
++          .addReg(ARM::R12)
++          .addImm(bits15_8)
++          .add(predOps(ARMCC::AL))
++          .addReg(ARM::CPSR, RegState::Define);
++    } else {
++      report_fatal_error("Segmented stacks function frame too large.");
++    }
++
 +    // Restore r12 if previously preserved.
 +    if (GetMBB->isLiveIn(ARM::R12)) {
 +      BuildMI(GetMBB, DL, TII.get(ARM::t2LDR_POST), ARM::R12)
@@ -151,47 +156,112 @@ index 9b54dd4e4e61..480de60d9f60 100644
 +          .add(predOps(ARMCC::AL));
 +    }
 +
-+    // This jump is taken remaining space is greater or equal than requested
-+    // size
-+    BuildMI(GetMBB, DL, TII.get(ARM::tBcc))
-+        .addMBB(PostStackMBB)
-+        .addImm(ARMCC::GE)
-+        .addReg(ARM::CPSR);
-+  } else if (AlignedStackSize < 65536) {
-+    uint64_t bits7_0 = AlignedStackSize & 0xff;
-+    uint64_t bits15_8 = AlignedStackSize & 0xff00;
++  } // if (Thumb2)
 +
-+    BuildMI(GetMBB, DL, TII.get(ARM::t2SUBri), ARM::R12)
-+        .addReg(ARM::R12)
-+        .addImm(bits7_0)
++  else if (Thumb) {
++    // push {r0-r1}
++    BuildMI(GetMBB, DL, TII.get(ARM::tPUSH))
 +        .add(predOps(ARMCC::AL))
-+        .addReg(ARM::CPSR, RegState::Define);
-+    ;
++        .addReg(ARM::R0)
++        .addReg(ARM::R1);
 +
-+    BuildMI(GetMBB, DL, TII.get(ARM::t2SUBri), ARM::R12)
-+        .addReg(ARM::R12)
-+        .addImm(bits15_8)
-+        .add(predOps(ARMCC::AL))
-+        .addReg(ARM::CPSR, RegState::Define);
++    // movs r0, #1
++    BuildMI(GetMBB, DL, TII.get(ARM::tMOVi8), ARM::R0)
++        .addReg(ARM::CPSR, RegState::Define)
++        .addImm(1)
++        .add(predOps(ARMCC::AL));
 +
-+    // Restore r12 if previously preserved.
-+    if (GetMBB->isLiveIn(ARM::R12)) {
-+      BuildMI(GetMBB, DL, TII.get(ARM::t2LDR_POST), ARM::R12)
-+          .addReg(ARM::SP)
-+          .addReg(ARM::SP)
-+          .addImm(4)
-+          .add(predOps(ARMCC::AL));
++    // lsls r0, #29
++    BuildMI(GetMBB, DL, TII.get(ARM::tLSLri), ARM::R0)
++        .addDef(ARM::CPSR)
++        .addReg(ARM::R0)
++        .addImm(29)
++        .add(predOps(ARMCC::AL));
++
++    // ldr r0, [r0]
++    BuildMI(GetMBB, DL, TII.get(ARM::tLDRi), ARM::R0)
++        .addReg(ARM::R0)
++        .addImm(0)
++        .add(predOps(ARMCC::AL));
++
++    // mov r1, sp
++    BuildMI(GetMBB, DL, TII.get(ARM::tMOVr), ARM::R1)
++        .addReg(ARM::SP)
++        .add(predOps(ARMCC::AL));
++
++    // subs r1, r0
++    BuildMI(GetMBB, DL, TII.get(ARM::tSUBrr), ARM::R1)
++        .add(condCodeOp())
++        .addReg(ARM::R1)
++        .addReg(ARM::R0)
++        .add(predOps(ARMCC::AL));
++
++    if (AlignedStackSize < 256) {
++    // movs r0, #stk_size
++    BuildMI(GetMBB, DL, TII.get(ARM::tMOVi8), ARM::R0)
++        .addReg(ARM::CPSR, RegState::Define)
++        .addImm(AlignedStackSize)
++        .add(predOps(ARMCC::AL));
++
++    } else if (AlignedStackSize < 1024) {
++    // movs r0, #stk_size / 4
++    BuildMI(GetMBB, DL, TII.get(ARM::tMOVi8), ARM::R0)
++        .addReg(ARM::CPSR, RegState::Define)
++        .addImm(AlignedStackSize / 4)
++        .add(predOps(ARMCC::AL));
++
++    // lsls r0, #2
++    BuildMI(GetMBB, DL, TII.get(ARM::tLSLri), ARM::R0)
++        .addDef(ARM::CPSR)
++        .addReg(ARM::R0)
++        .addImm(2)
++        .add(predOps(ARMCC::AL));
++    } else if (AlignedStackSize < 65536) {
++    auto high_8 = AlignedStackSize / 256;
++    auto low_8 = AlignedStackSize % 256;
++
++    // movs r0, #high_8
++    BuildMI(GetMBB, DL, TII.get(ARM::tMOVi8), ARM::R0)
++        .addReg(ARM::CPSR, RegState::Define)
++        .addImm(high_8)
++        .add(predOps(ARMCC::AL));
++
++    // lsls r0, #8
++    BuildMI(GetMBB, DL, TII.get(ARM::tLSLri), ARM::R0)
++        .addDef(ARM::CPSR)
++        .addReg(ARM::R0)
++        .addImm(8)
++        .add(predOps(ARMCC::AL));
++
++    // adds r0, #low_8
++    BuildMI(GetMBB, DL, TII.get(ARM::tADDi8), ARM::R0)
++        .addDef(ARM::CPSR)
++        .addReg(ARM::R0)
++        .addImm(low_8)
++        .add(predOps(ARMCC::AL));
++    } else {
++      report_fatal_error("Segmented stacks function frame too large.");
 +    }
 +
-+    // This jump is taken remaining space is greater or equal than requested
-+    // size
-+    BuildMI(GetMBB, DL, TII.get(ARM::tBcc))
-+        .addMBB(PostStackMBB)
-+        .addImm(ARMCC::GE)
-+        .addReg(ARM::CPSR);
-+  } else {
-+    report_fatal_error("Segmented stacks function frame too large.");
-+  }
++    // cmp r1, r0
++    BuildMI(GetMBB, DL, TII.get(ARM::tCMPr))
++        .addReg(ARM::R1)
++        .addReg(ARM::R0)
++        .add(predOps(ARMCC::AL));
++
++    // pop {r0-r1}
++    BuildMI(GetMBB, DL, TII.get(ARM::tPOP))
++        .add(predOps(ARMCC::AL))
++        .addReg(ARM::R0)
++        .addReg(ARM::R1);
++  } // else if (Thumb)
++
++  // This jump is taken if remaining space is greater or equal than requested
++  // size
++  BuildMI(GetMBB, DL, TII.get(ARM::tBcc))
++      .addMBB(PostStackMBB)
++      .addImm(ARMCC::GE)
++      .addReg(ARM::CPSR);
 +
 +  // Otherwise, call SVC
 +  BuildMI(AllocMBB, DL, TII.get(ARM::tSVC)).addImm(255).add(predOps(ARMCC::AL));
@@ -252,5 +322,5 @@ index be0ca964d3f9..7ebef6c1ba7a 100644
  // A8.6.218 Supervisor Call (Software Interrupt)
  // A8.6.16 B: Encoding T1
 -- 
-2.39.3 (Apple Git-146)
+2.39.5 (Apple Git-154)
 
