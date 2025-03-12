@@ -175,6 +175,10 @@ llvm-filecheck = "$LLVM_SRC_DIR/build/utils/FileCheck"
 llvm-config = "$LLVM_INSTALL_DIR/bin/llvm-config"
 llvm-filecheck = "$LLVM_SRC_DIR/build/utils/FileCheck"
 
+[target.thumbv6m-none-eabi]
+llvm-config = "$LLVM_INSTALL_DIR/bin/llvm-config"
+llvm-filecheck = "$LLVM_SRC_DIR/build/utils/FileCheck"
+
 [target.thumbv7em-none-eabihf]
 llvm-config = "$LLVM_INSTALL_DIR/bin/llvm-config"
 llvm-filecheck = "$LLVM_SRC_DIR/build/utils/FileCheck"
@@ -188,16 +192,6 @@ Compile Rust.
 Install Rust.
 ```
 ./x.py install
-```
-
-Link the compiled Rust compiler toolchain to `rustup`. Substitute `$RUST_INSTALL_DIR` with the directory rustc is installed in.
-```
-rustup toolchain link segstk-rust $RUST_INSTALL_DIR
-```
-
-If later one wants to remove the registration, run the following command. Do *not* run it for now.
-```
-rustup toolchain uninstall segstk-rust
 ```
 
 ## Rust `core` Library
@@ -220,6 +214,18 @@ cd core
 Apply the patch.
 ```
 patch -p1 < $PATCHES_DIR/rust-core/core_diff.patch
+```
+
+## Register the Toolchain
+
+Register the compiled Rust compiler toolchain with `rustup`. Substitute `$RUST_INSTALL_DIR` with the directory rustc is installed in.
+```
+rustup toolchain link segstk-rust $RUST_INSTALL_DIR
+```
+
+If later one wants to remove the registration, run the following command. Do *not* run it for now.
+```
+rustup toolchain uninstall segstk-rust
 ```
 
 Now we have finished all patching and installation. Below are troubleshooting sections.
