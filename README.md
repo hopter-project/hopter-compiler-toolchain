@@ -42,6 +42,10 @@ Here we summarize the modification for each part of the compiler toolchain.
 
 **Rust `core` Library**
 - Strip away unnecessary fields in `PanicInfo` so that the panic handling infrastructure can have minimal code storage overhead.
+- Provide atomic methods (e.g., `compare_exchange`, `fetch_add`) for atomic types on ARMv6M architectures.
+
+**Rust `alloc` Library**
+- Enable `alloc::sync` for ARMv6M architectures.
 
 # Build the Modified Compiler Toolchain
 
@@ -214,6 +218,28 @@ cd core
 Apply the patch.
 ```
 patch -p1 < $PATCHES_DIR/rust-core/core_diff.patch
+```
+
+## Rust `alloc` Library
+
+Enter the directory containing the Rust `alloc` libray within the installed Rust compiler toolchain.
+```
+cd $RUST_INSTALL_DIR/lib/rustlib/src/rust/library/
+```
+
+Backup the original `alloc` library source code.
+```
+cp -r alloc alloc_backup
+```
+
+Enter the `alloc` library.
+```
+cd alloc
+```
+
+Apply the patch.
+```
+patch -p1 < $PATCHES_DIR/rust-alloc/alloc_diff.patch
 ```
 
 ## Register the Toolchain
