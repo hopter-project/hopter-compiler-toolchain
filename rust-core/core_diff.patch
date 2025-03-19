@@ -1,6 +1,6 @@
 diff --color -urN core_backup/src/panic/panic_info.rs core/src/panic/panic_info.rs
---- core_backup/src/panic/panic_info.rs	2024-09-12 14:56:01
-+++ core/src/panic/panic_info.rs	2024-09-12 15:01:17
+--- core_backup/src/panic/panic_info.rs	2025-03-17 16:51:34
++++ core/src/panic/panic_info.rs	2025-03-18 22:37:00
 @@ -11,9 +11,7 @@
  #[lang = "panic_info"]
  #[stable(feature = "panic_hooks", since = "1.10.0")]
@@ -104,8 +104,8 @@ diff --color -urN core_backup/src/panic/panic_info.rs core/src/panic/panic_info.
 +    fn fmt(&self, _formatter: &mut fmt::Formatter<'_>) -> fmt::Result { Ok(()) }
  }
 diff --color -urN core_backup/src/panic.rs core/src/panic.rs
---- core_backup/src/panic.rs	2024-09-12 14:56:01
-+++ core/src/panic.rs	2024-09-12 15:08:23
+--- core_backup/src/panic.rs	2025-03-17 16:51:34
++++ core/src/panic.rs	2025-03-18 22:37:00
 @@ -40,7 +40,7 @@
      ($fmt:expr, $($arg:tt)+) => ({
          // Semicolon to prevent temporaries inside the formatting machinery from
@@ -134,8 +134,8 @@ diff --color -urN core_backup/src/panic.rs core/src/panic.rs
  }
  
 diff --color -urN core_backup/src/panicking.rs core/src/panicking.rs
---- core_backup/src/panicking.rs	2024-09-12 14:56:01
-+++ core/src/panicking.rs	2024-09-12 15:10:08
+--- core_backup/src/panicking.rs	2025-03-17 16:51:34
++++ core/src/panicking.rs	2025-03-18 22:37:00
 @@ -29,7 +29,7 @@
  )]
  
@@ -266,3 +266,2083 @@ diff --color -urN core_backup/src/panicking.rs core/src/panicking.rs
  }
  
  #[cfg_attr(not(feature = "panic_immediate_abort"), inline(never), cold)]
+diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
+--- core_backup/src/sync/atomic.rs	2025-03-17 16:51:34
++++ core/src/sync/atomic.rs	2025-03-17 18:11:55
+@@ -3780,3 +3780,2076 @@
+ pub fn spin_loop_hint() {
+     spin_loop()
+ }
++
++
++// ******************************************
++// * Experimental Implementation for ARMv6M *
++// ******************************************
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "8")))]
++impl AtomicBool {
++    /// Stores a value into the bool, returning the previous value.
++    ///
++    /// `swap` takes an [`Ordering`] argument which describes the memory ordering
++    /// of this operation. All ordering modes are possible. Note that using
++    /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++    /// using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on `u8`.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicBool, Ordering};
++    ///
++    /// let some_bool = AtomicBool::new(true);
++    ///
++    /// assert_eq!(some_bool.swap(false, Ordering::Relaxed), true);
++    /// assert_eq!(some_bool.load(Ordering::Relaxed), false);
++    /// ```
++    #[inline]
++    #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn swap(&self, val: bool, _order: Ordering) -> bool {
++        let dst = self.v.get();
++        let mut old: u8;
++        let new = val as u8;
++    
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldrb   {old}, [{dst}]",
++                "strb   {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "cmp    {primask}, #0",
++                "bne    1f",
++                "cpsie  i",
++                "1:",
++                primask  = out(reg) _,
++                old      = out(reg) old,
++                dst      = in(reg)  dst,
++                new      = in(reg)  new,
++                options(nostack)
++            );
++        }
++
++        old != 0
++    }
++
++    /// Stores a value into the [`bool`] if the current value is the same as the `current` value.
++    ///
++    /// The return value is a result indicating whether the new value was written and containing
++    /// the previous value. On success this value is guaranteed to be equal to `current`.
++    ///
++    /// `compare_exchange` takes two [`Ordering`] arguments to describe the memory
++    /// ordering of this operation. `success` describes the required ordering for the
++    /// read-modify-write operation that takes place if the comparison with `current` succeeds.
++    /// `failure` describes the required ordering for the load operation that takes place when
++    /// the comparison fails. Using [`Acquire`] as success ordering makes the store part
++    /// of this operation [`Relaxed`], and using [`Release`] makes the successful load
++    /// [`Relaxed`]. The failure ordering can only be [`SeqCst`], [`Acquire`] or [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on `u8`.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicBool, Ordering};
++    ///
++    /// let some_bool = AtomicBool::new(true);
++    ///
++    /// assert_eq!(some_bool.compare_exchange(true,
++    ///                                       false,
++    ///                                       Ordering::Acquire,
++    ///                                       Ordering::Relaxed),
++    ///            Ok(true));
++    /// assert_eq!(some_bool.load(Ordering::Relaxed), false);
++    ///
++    /// assert_eq!(some_bool.compare_exchange(true, true,
++    ///                                       Ordering::SeqCst,
++    ///                                       Ordering::Acquire),
++    ///            Err(false));
++    /// assert_eq!(some_bool.load(Ordering::Relaxed), false);
++    /// ```
++    #[inline]
++    #[stable(feature = "extended_compare_and_swap", since = "1.10.0")]
++    #[doc(alias = "compare_and_swap")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn compare_exchange(
++        &self,
++        current: bool,
++        new: bool,
++        _success: Ordering,
++        _failure: Ordering,
++    ) -> Result<bool, bool> {
++        let dst = self.v.get();
++        let cur = current as u8;
++        let old: u8;
++        let new = new as u8;
++
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldrb   {old}, [{dst}]",
++                "cmp    {old}, {cur}",
++                "bne    1f",
++                "strb   {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "1:",
++                "cmp    {primask}, #0",
++                "bne    2f",
++                "cpsie  i",
++                "2:",
++                primask = out(reg) _,
++                old     = out(reg) old,
++                dst     = in(reg) dst,
++                cur     = in(reg) cur,
++                new     = in(reg) new,
++                options(nostack)
++            );
++        }
++
++        if old == cur {
++            Ok(old != 0)
++        } else {
++            Err(old != 0)
++        }
++    }
++
++    /// Stores a value into the [`bool`] if the current value is the same as the `current` value.
++    ///
++    /// Unlike [`AtomicBool::compare_exchange`], this function is allowed to spuriously fail even when the
++    /// comparison succeeds, which can result in more efficient code on some platforms. The
++    /// return value is a result indicating whether the new value was written and containing the
++    /// previous value.
++    ///
++    /// `compare_exchange_weak` takes two [`Ordering`] arguments to describe the memory
++    /// ordering of this operation. `success` describes the required ordering for the
++    /// read-modify-write operation that takes place if the comparison with `current` succeeds.
++    /// `failure` describes the required ordering for the load operation that takes place when
++    /// the comparison fails. Using [`Acquire`] as success ordering makes the store part
++    /// of this operation [`Relaxed`], and using [`Release`] makes the successful load
++    /// [`Relaxed`]. The failure ordering can only be [`SeqCst`], [`Acquire`] or [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on `u8`.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicBool, Ordering};
++    ///
++    /// let val = AtomicBool::new(false);
++    ///
++    /// let new = true;
++    /// let mut old = val.load(Ordering::Relaxed);
++    /// loop {
++    ///     match val.compare_exchange_weak(old, new, Ordering::SeqCst, Ordering::Relaxed) {
++    ///         Ok(_) => break,
++    ///         Err(x) => old = x,
++    ///     }
++    /// }
++    /// ```
++    #[inline]
++    #[stable(feature = "extended_compare_and_swap", since = "1.10.0")]
++    #[doc(alias = "compare_and_swap")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn compare_exchange_weak(
++        &self,
++        current: bool,
++        new: bool,
++        success: Ordering,
++        failure: Ordering,
++    ) -> Result<bool, bool> {
++        self.compare_exchange(current, new, success, failure)
++    }
++
++    /// Logical "and" with a boolean value.
++    ///
++    /// Performs a logical "and" operation on the current value and the argument `val`, and sets
++    /// the new value to the result.
++    ///
++    /// Returns the previous value.
++    ///
++    /// `fetch_and` takes an [`Ordering`] argument which describes the memory ordering
++    /// of this operation. All ordering modes are possible. Note that using
++    /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++    /// using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on `u8`.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicBool, Ordering};
++    ///
++    /// let foo = AtomicBool::new(true);
++    /// assert_eq!(foo.fetch_and(false, Ordering::SeqCst), true);
++    /// assert_eq!(foo.load(Ordering::SeqCst), false);
++    ///
++    /// let foo = AtomicBool::new(true);
++    /// assert_eq!(foo.fetch_and(true, Ordering::SeqCst), true);
++    /// assert_eq!(foo.load(Ordering::SeqCst), true);
++    ///
++    /// let foo = AtomicBool::new(false);
++    /// assert_eq!(foo.fetch_and(false, Ordering::SeqCst), false);
++    /// assert_eq!(foo.load(Ordering::SeqCst), false);
++    /// ```
++    #[inline]
++    #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_and(&self, val: bool, _order: Ordering) -> bool {
++        let dst = self.v.get();
++        let mut old: u8;
++        let val = val as u8;
++    
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldrb   {old}, [{dst}]",
++                "mov    {new}, {old}",
++                "ands   {new}, {new}, {val}",
++                "strb   {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "cmp    {primask}, #0",
++                "bne    1f",
++                "cpsie  i",
++                "1:",
++                primask  = out(reg) _,
++                old      = out(reg) old,
++                new      = out(reg) _,
++                dst      = in(reg)  dst,
++                val      = in(reg)  val,
++                options(nostack)
++            );
++        }
++
++        old != 0
++    }
++
++    /// Logical "nand" with a boolean value.
++    ///
++    /// Performs a logical "nand" operation on the current value and the argument `val`, and sets
++    /// the new value to the result.
++    ///
++    /// Returns the previous value.
++    ///
++    /// `fetch_nand` takes an [`Ordering`] argument which describes the memory ordering
++    /// of this operation. All ordering modes are possible. Note that using
++    /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++    /// using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on `u8`.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicBool, Ordering};
++    ///
++    /// let foo = AtomicBool::new(true);
++    /// assert_eq!(foo.fetch_nand(false, Ordering::SeqCst), true);
++    /// assert_eq!(foo.load(Ordering::SeqCst), true);
++    ///
++    /// let foo = AtomicBool::new(true);
++    /// assert_eq!(foo.fetch_nand(true, Ordering::SeqCst), true);
++    /// assert_eq!(foo.load(Ordering::SeqCst) as usize, 0);
++    /// assert_eq!(foo.load(Ordering::SeqCst), false);
++    ///
++    /// let foo = AtomicBool::new(false);
++    /// assert_eq!(foo.fetch_nand(false, Ordering::SeqCst), false);
++    /// assert_eq!(foo.load(Ordering::SeqCst), true);
++    /// ```
++    #[inline]
++    #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_nand(&self, val: bool, order: Ordering) -> bool {
++        // We can't use atomic_nand here because it can result in a bool with
++        // an invalid value. This happens because the atomic operation is done
++        // with an 8-bit integer internally, which would set the upper 7 bits.
++        // So we just use fetch_xor or swap instead.
++        if val {
++            // !(x & true) == !x
++            // We must invert the bool.
++            self.fetch_xor(true, order)
++        } else {
++            // !(x & false) == true
++            // We must set the bool to true.
++            self.swap(true, order)
++        }
++    }
++
++    /// Logical "or" with a boolean value.
++    ///
++    /// Performs a logical "or" operation on the current value and the argument `val`, and sets the
++    /// new value to the result.
++    ///
++    /// Returns the previous value.
++    ///
++    /// `fetch_or` takes an [`Ordering`] argument which describes the memory ordering
++    /// of this operation. All ordering modes are possible. Note that using
++    /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++    /// using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on `u8`.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicBool, Ordering};
++    ///
++    /// let foo = AtomicBool::new(true);
++    /// assert_eq!(foo.fetch_or(false, Ordering::SeqCst), true);
++    /// assert_eq!(foo.load(Ordering::SeqCst), true);
++    ///
++    /// let foo = AtomicBool::new(true);
++    /// assert_eq!(foo.fetch_or(true, Ordering::SeqCst), true);
++    /// assert_eq!(foo.load(Ordering::SeqCst), true);
++    ///
++    /// let foo = AtomicBool::new(false);
++    /// assert_eq!(foo.fetch_or(false, Ordering::SeqCst), false);
++    /// assert_eq!(foo.load(Ordering::SeqCst), false);
++    /// ```
++    #[inline]
++    #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_or(&self, val: bool, _order: Ordering) -> bool {
++        let dst = self.v.get();
++        let mut old: u8;
++        let val = val as u8;
++    
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldrb   {old}, [{dst}]",
++                "mov    {new}, {old}",
++                "orrs   {new}, {new}, {val}",
++                "strb   {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "cmp    {primask}, #0",
++                "bne    1f",
++                "cpsie  i",
++                "1:",
++                primask  = out(reg) _,
++                old      = out(reg) old,
++                new      = out(reg) _,
++                dst      = in(reg)  dst,
++                val      = in(reg)  val,
++                options(nostack)
++            );
++        }
++
++        old != 0
++    }
++
++    /// Logical "xor" with a boolean value.
++    ///
++    /// Performs a logical "xor" operation on the current value and the argument `val`, and sets
++    /// the new value to the result.
++    ///
++    /// Returns the previous value.
++    ///
++    /// `fetch_xor` takes an [`Ordering`] argument which describes the memory ordering
++    /// of this operation. All ordering modes are possible. Note that using
++    /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++    /// using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on `u8`.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicBool, Ordering};
++    ///
++    /// let foo = AtomicBool::new(true);
++    /// assert_eq!(foo.fetch_xor(false, Ordering::SeqCst), true);
++    /// assert_eq!(foo.load(Ordering::SeqCst), true);
++    ///
++    /// let foo = AtomicBool::new(true);
++    /// assert_eq!(foo.fetch_xor(true, Ordering::SeqCst), true);
++    /// assert_eq!(foo.load(Ordering::SeqCst), false);
++    ///
++    /// let foo = AtomicBool::new(false);
++    /// assert_eq!(foo.fetch_xor(false, Ordering::SeqCst), false);
++    /// assert_eq!(foo.load(Ordering::SeqCst), false);
++    /// ```
++    #[inline]
++    #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_xor(&self, val: bool, _order: Ordering) -> bool {
++        let dst = self.v.get();
++        let mut old: u8;
++        let val = val as u8;
++    
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldrb   {old}, [{dst}]",
++                "mov    {new}, {old}",
++                "eors   {new}, {new}, {val}",
++                "strb   {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "cmp    {primask}, #0",
++                "bne    1f",
++                "cpsie  i",
++                "1:",
++                primask  = out(reg) _,
++                old      = out(reg) old,
++                new      = out(reg) _,
++                dst      = in(reg)  dst,
++                val      = in(reg)  val,
++                options(nostack)
++            );
++        }
++
++        old != 0
++    }
++
++    /// Logical "not" with a boolean value.
++    ///
++    /// Performs a logical "not" operation on the current value, and sets
++    /// the new value to the result.
++    ///
++    /// Returns the previous value.
++    ///
++    /// `fetch_not` takes an [`Ordering`] argument which describes the memory ordering
++    /// of this operation. All ordering modes are possible. Note that using
++    /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++    /// using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on `u8`.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicBool, Ordering};
++    ///
++    /// let foo = AtomicBool::new(true);
++    /// assert_eq!(foo.fetch_not(Ordering::SeqCst), true);
++    /// assert_eq!(foo.load(Ordering::SeqCst), false);
++    ///
++    /// let foo = AtomicBool::new(false);
++    /// assert_eq!(foo.fetch_not(Ordering::SeqCst), false);
++    /// assert_eq!(foo.load(Ordering::SeqCst), true);
++    /// ```
++    #[inline]
++    #[stable(feature = "atomic_bool_fetch_not", since = "1.81.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_not(&self, order: Ordering) -> bool {
++        self.fetch_xor(true, order)
++    }
++
++    /// Fetches the value, and applies a function to it that returns an optional
++    /// new value. Returns a `Result` of `Ok(previous_value)` if the function
++    /// returned `Some(_)`, else `Err(previous_value)`.
++    ///
++    /// Note: This may call the function multiple times if the value has been
++    /// changed from other threads in the meantime, as long as the function
++    /// returns `Some(_)`, but the function will have been applied only once to
++    /// the stored value.
++    ///
++    /// `fetch_update` takes two [`Ordering`] arguments to describe the memory
++    /// ordering of this operation. The first describes the required ordering for
++    /// when the operation finally succeeds while the second describes the
++    /// required ordering for loads. These correspond to the success and failure
++    /// orderings of [`AtomicBool::compare_exchange`] respectively.
++    ///
++    /// Using [`Acquire`] as success ordering makes the store part of this
++    /// operation [`Relaxed`], and using [`Release`] makes the final successful
++    /// load [`Relaxed`]. The (failed) load ordering can only be [`SeqCst`],
++    /// [`Acquire`] or [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on `u8`.
++    ///
++    /// # Considerations
++    ///
++    /// This method is not magic;  it is not provided by the hardware.
++    /// It is implemented in terms of [`AtomicBool::compare_exchange_weak`], and suffers from the same drawbacks.
++    /// In particular, this method will not circumvent the [ABA Problem].
++    ///
++    /// [ABA Problem]: https://en.wikipedia.org/wiki/ABA_problem
++    ///
++    /// # Examples
++    ///
++    /// ```rust
++    /// use std::sync::atomic::{AtomicBool, Ordering};
++    ///
++    /// let x = AtomicBool::new(false);
++    /// assert_eq!(x.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |_| None), Err(false));
++    /// assert_eq!(x.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| Some(!x)), Ok(false));
++    /// assert_eq!(x.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| Some(!x)), Ok(true));
++    /// assert_eq!(x.load(Ordering::SeqCst), false);
++    /// ```
++    #[inline]
++    #[stable(feature = "atomic_fetch_update", since = "1.53.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_update<F>(
++        &self,
++        set_order: Ordering,
++        fetch_order: Ordering,
++        mut f: F,
++    ) -> Result<bool, bool>
++    where
++        F: FnMut(bool) -> Option<bool>,
++    {
++        let mut prev = self.load(fetch_order);
++        while let Some(next) = f(prev) {
++            match self.compare_exchange_weak(prev, next, set_order, fetch_order) {
++                x @ Ok(_) => return x,
++                Err(next_prev) => prev = next_prev,
++            }
++        }
++        Err(prev)
++    }
++}
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "ptr")))]
++impl<T> AtomicPtr<T> {
++    /// Stores a value into the pointer, returning the previous value.
++    ///
++    /// `swap` takes an [`Ordering`] argument which describes the memory ordering
++    /// of this operation. All ordering modes are possible. Note that using
++    /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++    /// using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on pointers.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let ptr = &mut 5;
++    /// let some_ptr = AtomicPtr::new(ptr);
++    ///
++    /// let other_ptr = &mut 10;
++    ///
++    /// let value = some_ptr.swap(other_ptr, Ordering::Relaxed);
++    /// ```
++    #[inline]
++    #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn swap(&self, ptr: *mut T, _order: Ordering) -> *mut T {
++        let dst = self.p.get();
++        let mut old: *mut T;
++    
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldr    {old}, [{dst}]",
++                "str    {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "cmp    {primask}, #0",
++                "bne    1f",
++                "cpsie  i",
++                "1:",
++                primask  = out(reg) _,
++                old      = out(reg) old,
++                dst      = in(reg)  dst,
++                new      = in(reg)  ptr,
++                options(nostack)
++            );
++        }
++
++        old
++    }
++
++    /// Stores a value into the pointer if the current value is the same as the `current` value.
++    ///
++    /// The return value is a result indicating whether the new value was written and containing
++    /// the previous value. On success this value is guaranteed to be equal to `current`.
++    ///
++    /// `compare_exchange` takes two [`Ordering`] arguments to describe the memory
++    /// ordering of this operation. `success` describes the required ordering for the
++    /// read-modify-write operation that takes place if the comparison with `current` succeeds.
++    /// `failure` describes the required ordering for the load operation that takes place when
++    /// the comparison fails. Using [`Acquire`] as success ordering makes the store part
++    /// of this operation [`Relaxed`], and using [`Release`] makes the successful load
++    /// [`Relaxed`]. The failure ordering can only be [`SeqCst`], [`Acquire`] or [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on pointers.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let ptr = &mut 5;
++    /// let some_ptr = AtomicPtr::new(ptr);
++    ///
++    /// let other_ptr = &mut 10;
++    ///
++    /// let value = some_ptr.compare_exchange(ptr, other_ptr,
++    ///                                       Ordering::SeqCst, Ordering::Relaxed);
++    /// ```
++    #[inline]
++    #[stable(feature = "extended_compare_and_swap", since = "1.10.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn compare_exchange(
++        &self,
++        current: *mut T,
++        new: *mut T,
++        _success: Ordering,
++        _failure: Ordering,
++    ) -> Result<*mut T, *mut T> {
++        let dst = self.p.get();
++        let cur = current;
++        let old: *mut T;
++
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldr    {old}, [{dst}]",
++                "cmp    {old}, {cur}",
++                "bne    1f",
++                "str    {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "1:",
++                "cmp    {primask}, #0",
++                "bne    2f",
++                "cpsie  i",
++                "2:",
++                primask = out(reg) _,
++                old     = out(reg) old,
++                dst     = in(reg) dst,
++                cur     = in(reg) cur,
++                new     = in(reg) new,
++                options(nostack)
++            );
++        }
++
++        if old == cur {
++            Ok(old)
++        } else {
++            Err(old)
++        }
++    }
++
++    /// Stores a value into the pointer if the current value is the same as the `current` value.
++    ///
++    /// Unlike [`AtomicPtr::compare_exchange`], this function is allowed to spuriously fail even when the
++    /// comparison succeeds, which can result in more efficient code on some platforms. The
++    /// return value is a result indicating whether the new value was written and containing the
++    /// previous value.
++    ///
++    /// `compare_exchange_weak` takes two [`Ordering`] arguments to describe the memory
++    /// ordering of this operation. `success` describes the required ordering for the
++    /// read-modify-write operation that takes place if the comparison with `current` succeeds.
++    /// `failure` describes the required ordering for the load operation that takes place when
++    /// the comparison fails. Using [`Acquire`] as success ordering makes the store part
++    /// of this operation [`Relaxed`], and using [`Release`] makes the successful load
++    /// [`Relaxed`]. The failure ordering can only be [`SeqCst`], [`Acquire`] or [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on pointers.
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// use std::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let some_ptr = AtomicPtr::new(&mut 5);
++    ///
++    /// let new = &mut 10;
++    /// let mut old = some_ptr.load(Ordering::Relaxed);
++    /// loop {
++    ///     match some_ptr.compare_exchange_weak(old, new, Ordering::SeqCst, Ordering::Relaxed) {
++    ///         Ok(_) => break,
++    ///         Err(x) => old = x,
++    ///     }
++    /// }
++    /// ```
++    #[inline]
++    #[stable(feature = "extended_compare_and_swap", since = "1.10.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn compare_exchange_weak(
++        &self,
++        current: *mut T,
++        new: *mut T,
++        success: Ordering,
++        failure: Ordering,
++    ) -> Result<*mut T, *mut T> {
++        self.compare_exchange(current, new, success, failure)
++    }
++
++    /// Fetches the value, and applies a function to it that returns an optional
++    /// new value. Returns a `Result` of `Ok(previous_value)` if the function
++    /// returned `Some(_)`, else `Err(previous_value)`.
++    ///
++    /// Note: This may call the function multiple times if the value has been
++    /// changed from other threads in the meantime, as long as the function
++    /// returns `Some(_)`, but the function will have been applied only once to
++    /// the stored value.
++    ///
++    /// `fetch_update` takes two [`Ordering`] arguments to describe the memory
++    /// ordering of this operation. The first describes the required ordering for
++    /// when the operation finally succeeds while the second describes the
++    /// required ordering for loads. These correspond to the success and failure
++    /// orderings of [`AtomicPtr::compare_exchange`] respectively.
++    ///
++    /// Using [`Acquire`] as success ordering makes the store part of this
++    /// operation [`Relaxed`], and using [`Release`] makes the final successful
++    /// load [`Relaxed`]. The (failed) load ordering can only be [`SeqCst`],
++    /// [`Acquire`] or [`Relaxed`].
++    ///
++    /// **Note:** This method is only available on platforms that support atomic
++    /// operations on pointers.
++    ///
++    /// # Considerations
++    ///
++    /// This method is not magic;  it is not provided by the hardware.
++    /// It is implemented in terms of [`AtomicPtr::compare_exchange_weak`], and suffers from the same drawbacks.
++    /// In particular, this method will not circumvent the [ABA Problem].
++    ///
++    /// [ABA Problem]: https://en.wikipedia.org/wiki/ABA_problem
++    ///
++    /// # Examples
++    ///
++    /// ```rust
++    /// use std::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let ptr: *mut _ = &mut 5;
++    /// let some_ptr = AtomicPtr::new(ptr);
++    ///
++    /// let new: *mut _ = &mut 10;
++    /// assert_eq!(some_ptr.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |_| None), Err(ptr));
++    /// let result = some_ptr.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
++    ///     if x == ptr {
++    ///         Some(new)
++    ///     } else {
++    ///         None
++    ///     }
++    /// });
++    /// assert_eq!(result, Ok(ptr));
++    /// assert_eq!(some_ptr.load(Ordering::SeqCst), new);
++    /// ```
++    #[inline]
++    #[stable(feature = "atomic_fetch_update", since = "1.53.0")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_update<F>(
++        &self,
++        set_order: Ordering,
++        fetch_order: Ordering,
++        mut f: F,
++    ) -> Result<*mut T, *mut T>
++    where
++        F: FnMut(*mut T) -> Option<*mut T>,
++    {
++        let mut prev = self.load(fetch_order);
++        while let Some(next) = f(prev) {
++            match self.compare_exchange_weak(prev, next, set_order, fetch_order) {
++                x @ Ok(_) => return x,
++                Err(next_prev) => prev = next_prev,
++            }
++        }
++        Err(prev)
++    }
++
++    /// Offsets the pointer's address by adding `val` (in units of `T`),
++    /// returning the previous pointer.
++    ///
++    /// This is equivalent to using [`wrapping_add`] to atomically perform the
++    /// equivalent of `ptr = ptr.wrapping_add(val);`.
++    ///
++    /// This method operates in units of `T`, which means that it cannot be used
++    /// to offset the pointer by an amount which is not a multiple of
++    /// `size_of::<T>()`. This can sometimes be inconvenient, as you may want to
++    /// work with a deliberately misaligned pointer. In such cases, you may use
++    /// the [`fetch_byte_add`](Self::fetch_byte_add) method instead.
++    ///
++    /// `fetch_ptr_add` takes an [`Ordering`] argument which describes the
++    /// memory ordering of this operation. All ordering modes are possible. Note
++    /// that using [`Acquire`] makes the store part of this operation
++    /// [`Relaxed`], and using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note**: This method is only available on platforms that support atomic
++    /// operations on [`AtomicPtr`].
++    ///
++    /// [`wrapping_add`]: pointer::wrapping_add
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// #![feature(strict_provenance_atomic_ptr, strict_provenance)]
++    /// use core::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let atom = AtomicPtr::<i64>::new(core::ptr::null_mut());
++    /// assert_eq!(atom.fetch_ptr_add(1, Ordering::Relaxed).addr(), 0);
++    /// // Note: units of `size_of::<i64>()`.
++    /// assert_eq!(atom.load(Ordering::Relaxed).addr(), 8);
++    /// ```
++    #[inline]
++    #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_ptr_add(&self, val: usize, order: Ordering) -> *mut T {
++        self.fetch_byte_add(val.wrapping_mul(core::mem::size_of::<T>()), order)
++    }
++
++    /// Offsets the pointer's address by subtracting `val` (in units of `T`),
++    /// returning the previous pointer.
++    ///
++    /// This is equivalent to using [`wrapping_sub`] to atomically perform the
++    /// equivalent of `ptr = ptr.wrapping_sub(val);`.
++    ///
++    /// This method operates in units of `T`, which means that it cannot be used
++    /// to offset the pointer by an amount which is not a multiple of
++    /// `size_of::<T>()`. This can sometimes be inconvenient, as you may want to
++    /// work with a deliberately misaligned pointer. In such cases, you may use
++    /// the [`fetch_byte_sub`](Self::fetch_byte_sub) method instead.
++    ///
++    /// `fetch_ptr_sub` takes an [`Ordering`] argument which describes the memory
++    /// ordering of this operation. All ordering modes are possible. Note that
++    /// using [`Acquire`] makes the store part of this operation [`Relaxed`],
++    /// and using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note**: This method is only available on platforms that support atomic
++    /// operations on [`AtomicPtr`].
++    ///
++    /// [`wrapping_sub`]: pointer::wrapping_sub
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// #![feature(strict_provenance_atomic_ptr)]
++    /// use core::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let array = [1i32, 2i32];
++    /// let atom = AtomicPtr::new(array.as_ptr().wrapping_add(1) as *mut _);
++    ///
++    /// assert!(core::ptr::eq(
++    ///     atom.fetch_ptr_sub(1, Ordering::Relaxed),
++    ///     &array[1],
++    /// ));
++    /// assert!(core::ptr::eq(atom.load(Ordering::Relaxed), &array[0]));
++    /// ```
++    #[inline]
++    #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_ptr_sub(&self, val: usize, order: Ordering) -> *mut T {
++        self.fetch_byte_sub(val.wrapping_mul(core::mem::size_of::<T>()), order)
++    }
++
++    /// Offsets the pointer's address by adding `val` *bytes*, returning the
++    /// previous pointer.
++    ///
++    /// This is equivalent to using [`wrapping_byte_add`] to atomically
++    /// perform `ptr = ptr.wrapping_byte_add(val)`.
++    ///
++    /// `fetch_byte_add` takes an [`Ordering`] argument which describes the
++    /// memory ordering of this operation. All ordering modes are possible. Note
++    /// that using [`Acquire`] makes the store part of this operation
++    /// [`Relaxed`], and using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note**: This method is only available on platforms that support atomic
++    /// operations on [`AtomicPtr`].
++    ///
++    /// [`wrapping_byte_add`]: pointer::wrapping_byte_add
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// #![feature(strict_provenance_atomic_ptr, strict_provenance)]
++    /// use core::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let atom = AtomicPtr::<i64>::new(core::ptr::null_mut());
++    /// assert_eq!(atom.fetch_byte_add(1, Ordering::Relaxed).addr(), 0);
++    /// // Note: in units of bytes, not `size_of::<i64>()`.
++    /// assert_eq!(atom.load(Ordering::Relaxed).addr(), 1);
++    /// ```
++    #[inline]
++    #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_byte_add(&self, val: usize, _order: Ordering) -> *mut T {
++        let dst = self.p.get();
++        let mut old: *mut T;
++    
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldr    {old}, [{dst}]",
++                "mov    {new}, {old}",
++                "adds   {new}, {new}, {val}",
++                "str    {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "cmp    {primask}, #0",
++                "bne    1f",
++                "cpsie  i",
++                "1:",
++                primask  = out(reg) _,
++                old      = out(reg) old,
++                new      = out(reg) _,
++                dst      = in(reg)  dst,
++                val      = in(reg)  val,
++                options(nostack)
++            );
++        }
++
++        old
++    }
++
++    /// Offsets the pointer's address by subtracting `val` *bytes*, returning the
++    /// previous pointer.
++    ///
++    /// This is equivalent to using [`wrapping_byte_sub`] to atomically
++    /// perform `ptr = ptr.wrapping_byte_sub(val)`.
++    ///
++    /// `fetch_byte_sub` takes an [`Ordering`] argument which describes the
++    /// memory ordering of this operation. All ordering modes are possible. Note
++    /// that using [`Acquire`] makes the store part of this operation
++    /// [`Relaxed`], and using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note**: This method is only available on platforms that support atomic
++    /// operations on [`AtomicPtr`].
++    ///
++    /// [`wrapping_byte_sub`]: pointer::wrapping_byte_sub
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// #![feature(strict_provenance_atomic_ptr, strict_provenance)]
++    /// use core::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let atom = AtomicPtr::<i64>::new(core::ptr::without_provenance_mut(1));
++    /// assert_eq!(atom.fetch_byte_sub(1, Ordering::Relaxed).addr(), 1);
++    /// assert_eq!(atom.load(Ordering::Relaxed).addr(), 0);
++    /// ```
++    #[inline]
++    #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_byte_sub(&self, val: usize, _order: Ordering) -> *mut T {
++        let dst = self.p.get();
++        let mut old: *mut T;
++    
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldr    {old}, [{dst}]",
++                "mov    {new}, {old}",
++                "subs   {new}, {new}, {val}",
++                "str    {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "cmp    {primask}, #0",
++                "bne    1f",
++                "cpsie  i",
++                "1:",
++                primask  = out(reg) _,
++                old      = out(reg) old,
++                new      = out(reg) _,
++                dst      = in(reg)  dst,
++                val      = in(reg)  val,
++                options(nostack)
++            );
++        }
++
++        old
++    }
++
++    /// Performs a bitwise "or" operation on the address of the current pointer,
++    /// and the argument `val`, and stores a pointer with provenance of the
++    /// current pointer and the resulting address.
++    ///
++    /// This is equivalent to using [`map_addr`] to atomically perform
++    /// `ptr = ptr.map_addr(|a| a | val)`. This can be used in tagged
++    /// pointer schemes to atomically set tag bits.
++    ///
++    /// **Caveat**: This operation returns the previous value. To compute the
++    /// stored value without losing provenance, you may use [`map_addr`]. For
++    /// example: `a.fetch_or(val).map_addr(|a| a | val)`.
++    ///
++    /// `fetch_or` takes an [`Ordering`] argument which describes the memory
++    /// ordering of this operation. All ordering modes are possible. Note that
++    /// using [`Acquire`] makes the store part of this operation [`Relaxed`],
++    /// and using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note**: This method is only available on platforms that support atomic
++    /// operations on [`AtomicPtr`].
++    ///
++    /// This API and its claimed semantics are part of the Strict Provenance
++    /// experiment, see the [module documentation for `ptr`][crate::ptr] for
++    /// details.
++    ///
++    /// [`map_addr`]: pointer::map_addr
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// #![feature(strict_provenance_atomic_ptr, strict_provenance)]
++    /// use core::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let pointer = &mut 3i64 as *mut i64;
++    ///
++    /// let atom = AtomicPtr::<i64>::new(pointer);
++    /// // Tag the bottom bit of the pointer.
++    /// assert_eq!(atom.fetch_or(1, Ordering::Relaxed).addr() & 1, 0);
++    /// // Extract and untag.
++    /// let tagged = atom.load(Ordering::Relaxed);
++    /// assert_eq!(tagged.addr() & 1, 1);
++    /// assert_eq!(tagged.map_addr(|p| p & !1), pointer);
++    /// ```
++    #[inline]
++    #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_or(&self, val: usize, _order: Ordering) -> *mut T {
++        let dst = self.p.get();
++        let mut old: *mut T;
++    
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldr    {old}, [{dst}]",
++                "mov    {new}, {old}",
++                "orrs   {new}, {new}, {val}",
++                "str    {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "cmp    {primask}, #0",
++                "bne    1f",
++                "cpsie  i",
++                "1:",
++                primask  = out(reg) _,
++                old      = out(reg) old,
++                new      = out(reg) _,
++                dst      = in(reg)  dst,
++                val      = in(reg)  val,
++                options(nostack)
++            );
++        }
++
++        old
++    }
++
++    /// Performs a bitwise "and" operation on the address of the current
++    /// pointer, and the argument `val`, and stores a pointer with provenance of
++    /// the current pointer and the resulting address.
++    ///
++    /// This is equivalent to using [`map_addr`] to atomically perform
++    /// `ptr = ptr.map_addr(|a| a & val)`. This can be used in tagged
++    /// pointer schemes to atomically unset tag bits.
++    ///
++    /// **Caveat**: This operation returns the previous value. To compute the
++    /// stored value without losing provenance, you may use [`map_addr`]. For
++    /// example: `a.fetch_and(val).map_addr(|a| a & val)`.
++    ///
++    /// `fetch_and` takes an [`Ordering`] argument which describes the memory
++    /// ordering of this operation. All ordering modes are possible. Note that
++    /// using [`Acquire`] makes the store part of this operation [`Relaxed`],
++    /// and using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note**: This method is only available on platforms that support atomic
++    /// operations on [`AtomicPtr`].
++    ///
++    /// This API and its claimed semantics are part of the Strict Provenance
++    /// experiment, see the [module documentation for `ptr`][crate::ptr] for
++    /// details.
++    ///
++    /// [`map_addr`]: pointer::map_addr
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// #![feature(strict_provenance_atomic_ptr, strict_provenance)]
++    /// use core::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let pointer = &mut 3i64 as *mut i64;
++    /// // A tagged pointer
++    /// let atom = AtomicPtr::<i64>::new(pointer.map_addr(|a| a | 1));
++    /// assert_eq!(atom.fetch_or(1, Ordering::Relaxed).addr() & 1, 1);
++    /// // Untag, and extract the previously tagged pointer.
++    /// let untagged = atom.fetch_and(!1, Ordering::Relaxed)
++    ///     .map_addr(|a| a & !1);
++    /// assert_eq!(untagged, pointer);
++    /// ```
++    #[inline]
++    #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_and(&self, val: usize, _order: Ordering) -> *mut T {
++        let dst = self.p.get();
++        let mut old: *mut T;
++    
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldr    {old}, [{dst}]",
++                "mov    {new}, {old}",
++                "ands   {new}, {new}, {val}",
++                "str    {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "cmp    {primask}, #0",
++                "bne    1f",
++                "cpsie  i",
++                "1:",
++                primask  = out(reg) _,
++                old      = out(reg) old,
++                new      = out(reg) _,
++                dst      = in(reg)  dst,
++                val      = in(reg)  val,
++                options(nostack)
++            );
++        }
++
++        old
++    }
++
++    /// Performs a bitwise "xor" operation on the address of the current
++    /// pointer, and the argument `val`, and stores a pointer with provenance of
++    /// the current pointer and the resulting address.
++    ///
++    /// This is equivalent to using [`map_addr`] to atomically perform
++    /// `ptr = ptr.map_addr(|a| a ^ val)`. This can be used in tagged
++    /// pointer schemes to atomically toggle tag bits.
++    ///
++    /// **Caveat**: This operation returns the previous value. To compute the
++    /// stored value without losing provenance, you may use [`map_addr`]. For
++    /// example: `a.fetch_xor(val).map_addr(|a| a ^ val)`.
++    ///
++    /// `fetch_xor` takes an [`Ordering`] argument which describes the memory
++    /// ordering of this operation. All ordering modes are possible. Note that
++    /// using [`Acquire`] makes the store part of this operation [`Relaxed`],
++    /// and using [`Release`] makes the load part [`Relaxed`].
++    ///
++    /// **Note**: This method is only available on platforms that support atomic
++    /// operations on [`AtomicPtr`].
++    ///
++    /// This API and its claimed semantics are part of the Strict Provenance
++    /// experiment, see the [module documentation for `ptr`][crate::ptr] for
++    /// details.
++    ///
++    /// [`map_addr`]: pointer::map_addr
++    ///
++    /// # Examples
++    ///
++    /// ```
++    /// #![feature(strict_provenance_atomic_ptr, strict_provenance)]
++    /// use core::sync::atomic::{AtomicPtr, Ordering};
++    ///
++    /// let pointer = &mut 3i64 as *mut i64;
++    /// let atom = AtomicPtr::<i64>::new(pointer);
++    ///
++    /// // Toggle a tag bit on the pointer.
++    /// atom.fetch_xor(1, Ordering::Relaxed);
++    /// assert_eq!(atom.load(Ordering::Relaxed).addr() & 1, 1);
++    /// ```
++    #[inline]
++    #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
++    #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++    pub fn fetch_xor(&self, val: usize, _order: Ordering) -> *mut T {
++        let dst = self.p.get();
++        let mut old: *mut T;
++    
++        unsafe {
++            crate::arch::asm!(
++                "mrs    {primask}, PRIMASK",
++                "cpsid  i",
++                "dmb",
++                "ldr    {old}, [{dst}]",
++                "mov    {new}, {old}",
++                "eors   {new}, {new}, {val}",
++                "str    {new}, [{dst}]",
++                "dsb",
++                "dmb",
++                "cmp    {primask}, #0",
++                "bne    1f",
++                "cpsie  i",
++                "1:",
++                primask  = out(reg) _,
++                old      = out(reg) old,
++                new      = out(reg) _,
++                dst      = in(reg)  dst,
++                val      = in(reg)  val,
++                options(nostack)
++            );
++        }
++
++        old
++    }
++}
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "ptr")))]
++macro_rules! atomic_int_armv6m {
++    ($stable:meta,
++     $stable_cxchg:meta,
++     $stable_nand:meta,
++     $s_int_type:literal,
++     $extra_feature:expr,
++     $load_asm:literal,
++     $store_asm:literal,
++     $cond_branch_greater_asm:literal,
++     $cond_branch_less_asm:literal,
++     $int_type:ident $atomic_type:ident) => {
++        impl $atomic_type {
++            /// Stores a value into the atomic integer, returning the previous value.
++            ///
++            /// `swap` takes an [`Ordering`] argument which describes the memory ordering
++            /// of this operation. All ordering modes are possible. Note that using
++            /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++            /// using [`Release`] makes the load part [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let some_var = ", stringify!($atomic_type), "::new(5);")]
++            ///
++            /// assert_eq!(some_var.swap(10, Ordering::Relaxed), 5);
++            /// ```
++            #[inline]
++            #[$stable]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn swap(&self, val: $int_type, order: Ordering) -> $int_type {
++                let dst = self.v.get();
++                let mut old: $int_type;
++            
++                unsafe {
++                    crate::arch::asm!(
++                        "mrs    {primask}, PRIMASK",
++                        "cpsid  i",
++                        "dmb",
++                        $load_asm,
++                        $store_asm,
++                        "dsb",
++                        "dmb",
++                        "cmp    {primask}, #0",
++                        "bne    1f",
++                        "cpsie  i",
++                        "1:",
++                        primask  = out(reg) _,
++                        old      = out(reg) old,
++                        dst      = in(reg)  dst,
++                        new      = in(reg)  val,
++                        options(nostack)
++                    );
++                }
++
++                old
++            }
++
++            /// Stores a value into the atomic integer if the current value is the same as
++            /// the `current` value.
++            ///
++            /// The return value is a result indicating whether the new value was written and
++            /// containing the previous value. On success this value is guaranteed to be equal to
++            /// `current`.
++            ///
++            /// `compare_exchange` takes two [`Ordering`] arguments to describe the memory
++            /// ordering of this operation. `success` describes the required ordering for the
++            /// read-modify-write operation that takes place if the comparison with `current` succeeds.
++            /// `failure` describes the required ordering for the load operation that takes place when
++            /// the comparison fails. Using [`Acquire`] as success ordering makes the store part
++            /// of this operation [`Relaxed`], and using [`Release`] makes the successful load
++            /// [`Relaxed`]. The failure ordering can only be [`SeqCst`], [`Acquire`] or [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let some_var = ", stringify!($atomic_type), "::new(5);")]
++            ///
++            /// assert_eq!(some_var.compare_exchange(5, 10,
++            ///                                      Ordering::Acquire,
++            ///                                      Ordering::Relaxed),
++            ///            Ok(5));
++            /// assert_eq!(some_var.load(Ordering::Relaxed), 10);
++            ///
++            /// assert_eq!(some_var.compare_exchange(6, 12,
++            ///                                      Ordering::SeqCst,
++            ///                                      Ordering::Acquire),
++            ///            Err(10));
++            /// assert_eq!(some_var.load(Ordering::Relaxed), 10);
++            /// ```
++            #[inline]
++            #[$stable_cxchg]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn compare_exchange(&self,
++                                    current: $int_type,
++                                    new: $int_type,
++                                    success: Ordering,
++                                    failure: Ordering) -> Result<$int_type, $int_type> {
++                let dst = self.v.get();
++                let cur = current;
++                let old: $int_type;
++
++                unsafe {
++                    crate::arch::asm!(
++                        "mrs    {primask}, PRIMASK",
++                        "cpsid  i",
++                        "dmb",
++                        $load_asm,
++                        "cmp    {old}, {cur}",
++                        "bne    1f",
++                        $store_asm,
++                        "dsb",
++                        "dmb",
++                        "1:",
++                        "cmp    {primask}, #0",
++                        "bne    2f",
++                        "cpsie  i",
++                        "2:",
++                        primask = out(reg) _,
++                        old     = out(reg) old,
++                        dst     = in(reg) dst,
++                        cur     = in(reg) cur,
++                        new     = in(reg) new,
++                        options(nostack)
++                    );
++                }
++
++                if old == cur {
++                    Ok(old)
++                } else {
++                    Err(old)
++                }
++            }
++
++            /// Stores a value into the atomic integer if the current value is the same as
++            /// the `current` value.
++            ///
++            #[doc = concat!("Unlike [`", stringify!($atomic_type), "::compare_exchange`],")]
++            /// this function is allowed to spuriously fail even
++            /// when the comparison succeeds, which can result in more efficient code on some
++            /// platforms. The return value is a result indicating whether the new value was
++            /// written and containing the previous value.
++            ///
++            /// `compare_exchange_weak` takes two [`Ordering`] arguments to describe the memory
++            /// ordering of this operation. `success` describes the required ordering for the
++            /// read-modify-write operation that takes place if the comparison with `current` succeeds.
++            /// `failure` describes the required ordering for the load operation that takes place when
++            /// the comparison fails. Using [`Acquire`] as success ordering makes the store part
++            /// of this operation [`Relaxed`], and using [`Release`] makes the successful load
++            /// [`Relaxed`]. The failure ordering can only be [`SeqCst`], [`Acquire`] or [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let val = ", stringify!($atomic_type), "::new(4);")]
++            ///
++            /// let mut old = val.load(Ordering::Relaxed);
++            /// loop {
++            ///     let new = old * 2;
++            ///     match val.compare_exchange_weak(old, new, Ordering::SeqCst, Ordering::Relaxed) {
++            ///         Ok(_) => break,
++            ///         Err(x) => old = x,
++            ///     }
++            /// }
++            /// ```
++            #[inline]
++            #[$stable_cxchg]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn compare_exchange_weak(&self,
++                                         current: $int_type,
++                                         new: $int_type,
++                                         success: Ordering,
++                                         failure: Ordering) -> Result<$int_type, $int_type> {
++                self.compare_exchange(current, new, success, failure)
++            }
++
++            /// Adds to the current value, returning the previous value.
++            ///
++            /// This operation wraps around on overflow.
++            ///
++            /// `fetch_add` takes an [`Ordering`] argument which describes the memory ordering
++            /// of this operation. All ordering modes are possible. Note that using
++            /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++            /// using [`Release`] makes the load part [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let foo = ", stringify!($atomic_type), "::new(0);")]
++            /// assert_eq!(foo.fetch_add(10, Ordering::SeqCst), 0);
++            /// assert_eq!(foo.load(Ordering::SeqCst), 10);
++            /// ```
++            #[inline]
++            #[$stable]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn fetch_add(&self, val: $int_type, order: Ordering) -> $int_type {
++                let dst = self.v.get();
++                let mut old: $int_type;
++            
++                unsafe {
++                    crate::arch::asm!(
++                        "mrs    {primask}, PRIMASK",
++                        "cpsid  i",
++                        "dmb",
++                        $load_asm,
++                        "mov    {new}, {old}",
++                        "adds   {new}, {new}, {val}",
++                        $store_asm,
++                        "dsb",
++                        "dmb",
++                        "cmp    {primask}, #0",
++                        "bne    1f",
++                        "cpsie  i",
++                        "1:",
++                        primask  = out(reg) _,
++                        old      = out(reg) old,
++                        new      = out(reg) _,
++                        dst      = in(reg)  dst,
++                        val      = in(reg)  val,
++                        options(nostack)
++                    );
++                }
++
++                old
++            }
++
++            /// Subtracts from the current value, returning the previous value.
++            ///
++            /// This operation wraps around on overflow.
++            ///
++            /// `fetch_sub` takes an [`Ordering`] argument which describes the memory ordering
++            /// of this operation. All ordering modes are possible. Note that using
++            /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++            /// using [`Release`] makes the load part [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let foo = ", stringify!($atomic_type), "::new(20);")]
++            /// assert_eq!(foo.fetch_sub(10, Ordering::SeqCst), 20);
++            /// assert_eq!(foo.load(Ordering::SeqCst), 10);
++            /// ```
++            #[inline]
++            #[$stable]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn fetch_sub(&self, val: $int_type, order: Ordering) -> $int_type {
++                let dst = self.v.get();
++                let mut old: $int_type;
++            
++                unsafe {
++                    crate::arch::asm!(
++                        "mrs    {primask}, PRIMASK",
++                        "cpsid  i",
++                        "dmb",
++                        $load_asm,
++                        "mov    {new}, {old}",
++                        "subs   {new}, {new}, {val}",
++                        $store_asm,
++                        "dsb",
++                        "dmb",
++                        "cmp    {primask}, #0",
++                        "bne    1f",
++                        "cpsie  i",
++                        "1:",
++                        primask  = out(reg) _,
++                        old      = out(reg) old,
++                        new      = out(reg) _,
++                        dst      = in(reg)  dst,
++                        val      = in(reg)  val,
++                        options(nostack)
++                    );
++                }
++
++                old
++            }
++
++            /// Bitwise "and" with the current value.
++            ///
++            /// Performs a bitwise "and" operation on the current value and the argument `val`, and
++            /// sets the new value to the result.
++            ///
++            /// Returns the previous value.
++            ///
++            /// `fetch_and` takes an [`Ordering`] argument which describes the memory ordering
++            /// of this operation. All ordering modes are possible. Note that using
++            /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++            /// using [`Release`] makes the load part [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let foo = ", stringify!($atomic_type), "::new(0b101101);")]
++            /// assert_eq!(foo.fetch_and(0b110011, Ordering::SeqCst), 0b101101);
++            /// assert_eq!(foo.load(Ordering::SeqCst), 0b100001);
++            /// ```
++            #[inline]
++            #[$stable]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn fetch_and(&self, val: $int_type, order: Ordering) -> $int_type {
++                let dst = self.v.get();
++                let mut old: $int_type;
++            
++                unsafe {
++                    crate::arch::asm!(
++                        "mrs    {primask}, PRIMASK",
++                        "cpsid  i",
++                        "dmb",
++                        $load_asm,
++                        "mov    {new}, {old}",
++                        "ands   {new}, {new}, {val}",
++                        $store_asm,
++                        "dsb",
++                        "dmb",
++                        "cmp    {primask}, #0",
++                        "bne    1f",
++                        "cpsie  i",
++                        "1:",
++                        primask  = out(reg) _,
++                        old      = out(reg) old,
++                        new      = out(reg) _,
++                        dst      = in(reg)  dst,
++                        val      = in(reg)  val,
++                        options(nostack)
++                    );
++                }
++
++                old
++            }
++
++            /// Bitwise "nand" with the current value.
++            ///
++            /// Performs a bitwise "nand" operation on the current value and the argument `val`, and
++            /// sets the new value to the result.
++            ///
++            /// Returns the previous value.
++            ///
++            /// `fetch_nand` takes an [`Ordering`] argument which describes the memory ordering
++            /// of this operation. All ordering modes are possible. Note that using
++            /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++            /// using [`Release`] makes the load part [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let foo = ", stringify!($atomic_type), "::new(0x13);")]
++            /// assert_eq!(foo.fetch_nand(0x31, Ordering::SeqCst), 0x13);
++            /// assert_eq!(foo.load(Ordering::SeqCst), !(0x13 & 0x31));
++            /// ```
++            #[inline]
++            #[$stable_nand]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn fetch_nand(&self, val: $int_type, order: Ordering) -> $int_type {
++                let dst = self.v.get();
++                let mut old: $int_type;
++            
++                unsafe {
++                    crate::arch::asm!(
++                        "mrs    {primask}, PRIMASK",
++                        "cpsid  i",
++                        "dmb",
++                        $load_asm,
++                        "mov    {new}, {old}",
++                        "ands   {new}, {new}, {val}",
++                        "mvns   {new}, {new}",
++                        $store_asm,
++                        "dsb",
++                        "dmb",
++                        "cmp    {primask}, #0",
++                        "bne    1f",
++                        "cpsie  i",
++                        "1:",
++                        primask  = out(reg) _,
++                        old      = out(reg) old,
++                        new      = out(reg) _,
++                        dst      = in(reg)  dst,
++                        val      = in(reg)  val,
++                        options(nostack)
++                    );
++                }
++
++                old
++            }
++
++            /// Bitwise "or" with the current value.
++            ///
++            /// Performs a bitwise "or" operation on the current value and the argument `val`, and
++            /// sets the new value to the result.
++            ///
++            /// Returns the previous value.
++            ///
++            /// `fetch_or` takes an [`Ordering`] argument which describes the memory ordering
++            /// of this operation. All ordering modes are possible. Note that using
++            /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++            /// using [`Release`] makes the load part [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let foo = ", stringify!($atomic_type), "::new(0b101101);")]
++            /// assert_eq!(foo.fetch_or(0b110011, Ordering::SeqCst), 0b101101);
++            /// assert_eq!(foo.load(Ordering::SeqCst), 0b111111);
++            /// ```
++            #[inline]
++            #[$stable]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn fetch_or(&self, val: $int_type, order: Ordering) -> $int_type {
++                let dst = self.v.get();
++                let mut old: $int_type;
++            
++                unsafe {
++                    crate::arch::asm!(
++                        "mrs    {primask}, PRIMASK",
++                        "cpsid  i",
++                        "dmb",
++                        $load_asm,
++                        "mov    {new}, {old}",
++                        "orrs   {new}, {new}, {val}",
++                        $store_asm,
++                        "dsb",
++                        "dmb",
++                        "cmp    {primask}, #0",
++                        "bne    1f",
++                        "cpsie  i",
++                        "1:",
++                        primask  = out(reg) _,
++                        old      = out(reg) old,
++                        new      = out(reg) _,
++                        dst      = in(reg)  dst,
++                        val      = in(reg)  val,
++                        options(nostack)
++                    );
++                }
++
++                old
++            }
++
++            /// Bitwise "xor" with the current value.
++            ///
++            /// Performs a bitwise "xor" operation on the current value and the argument `val`, and
++            /// sets the new value to the result.
++            ///
++            /// Returns the previous value.
++            ///
++            /// `fetch_xor` takes an [`Ordering`] argument which describes the memory ordering
++            /// of this operation. All ordering modes are possible. Note that using
++            /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++            /// using [`Release`] makes the load part [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let foo = ", stringify!($atomic_type), "::new(0b101101);")]
++            /// assert_eq!(foo.fetch_xor(0b110011, Ordering::SeqCst), 0b101101);
++            /// assert_eq!(foo.load(Ordering::SeqCst), 0b011110);
++            /// ```
++            #[inline]
++            #[$stable]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn fetch_xor(&self, val: $int_type, order: Ordering) -> $int_type {
++                let dst = self.v.get();
++                let mut old: $int_type;
++            
++                unsafe {
++                    crate::arch::asm!(
++                        "mrs    {primask}, PRIMASK",
++                        "cpsid  i",
++                        "dmb",
++                        $load_asm,
++                        "mov    {new}, {old}",
++                        "eors   {new}, {new}, {val}",
++                        $store_asm,
++                        "dsb",
++                        "dmb",
++                        "cmp    {primask}, #0",
++                        "bne    1f",
++                        "cpsie  i",
++                        "1:",
++                        primask  = out(reg) _,
++                        old      = out(reg) old,
++                        new      = out(reg) _,
++                        dst      = in(reg)  dst,
++                        val      = in(reg)  val,
++                        options(nostack)
++                    );
++                }
++
++                old
++            }
++
++            /// Fetches the value, and applies a function to it that returns an optional
++            /// new value. Returns a `Result` of `Ok(previous_value)` if the function returned `Some(_)`, else
++            /// `Err(previous_value)`.
++            ///
++            /// Note: This may call the function multiple times if the value has been changed from other threads in
++            /// the meantime, as long as the function returns `Some(_)`, but the function will have been applied
++            /// only once to the stored value.
++            ///
++            /// `fetch_update` takes two [`Ordering`] arguments to describe the memory ordering of this operation.
++            /// The first describes the required ordering for when the operation finally succeeds while the second
++            /// describes the required ordering for loads. These correspond to the success and failure orderings of
++            #[doc = concat!("[`", stringify!($atomic_type), "::compare_exchange`]")]
++            /// respectively.
++            ///
++            /// Using [`Acquire`] as success ordering makes the store part
++            /// of this operation [`Relaxed`], and using [`Release`] makes the final successful load
++            /// [`Relaxed`]. The (failed) load ordering can only be [`SeqCst`], [`Acquire`] or [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Considerations
++            ///
++            /// This method is not magic;  it is not provided by the hardware.
++            /// It is implemented in terms of
++            #[doc = concat!("[`", stringify!($atomic_type), "::compare_exchange_weak`],")]
++            /// and suffers from the same drawbacks.
++            /// In particular, this method will not circumvent the [ABA Problem].
++            ///
++            /// [ABA Problem]: https://en.wikipedia.org/wiki/ABA_problem
++            ///
++            /// # Examples
++            ///
++            /// ```rust
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let x = ", stringify!($atomic_type), "::new(7);")]
++            /// assert_eq!(x.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |_| None), Err(7));
++            /// assert_eq!(x.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| Some(x + 1)), Ok(7));
++            /// assert_eq!(x.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| Some(x + 1)), Ok(8));
++            /// assert_eq!(x.load(Ordering::SeqCst), 9);
++            /// ```
++            #[inline]
++            #[stable(feature = "no_more_cas", since = "1.45.0")]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn fetch_update<F>(&self,
++                                   set_order: Ordering,
++                                   fetch_order: Ordering,
++                                   mut f: F) -> Result<$int_type, $int_type>
++            where F: FnMut($int_type) -> Option<$int_type> {
++                let mut prev = self.load(fetch_order);
++                while let Some(next) = f(prev) {
++                    match self.compare_exchange_weak(prev, next, set_order, fetch_order) {
++                        x @ Ok(_) => return x,
++                        Err(next_prev) => prev = next_prev
++                    }
++                }
++                Err(prev)
++            }
++
++            /// Maximum with the current value.
++            ///
++            /// Finds the maximum of the current value and the argument `val`, and
++            /// sets the new value to the result.
++            ///
++            /// Returns the previous value.
++            ///
++            /// `fetch_max` takes an [`Ordering`] argument which describes the memory ordering
++            /// of this operation. All ordering modes are possible. Note that using
++            /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++            /// using [`Release`] makes the load part [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let foo = ", stringify!($atomic_type), "::new(23);")]
++            /// assert_eq!(foo.fetch_max(42, Ordering::SeqCst), 23);
++            /// assert_eq!(foo.load(Ordering::SeqCst), 42);
++            /// ```
++            ///
++            /// If you want to obtain the maximum value in one step, you can use the following:
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let foo = ", stringify!($atomic_type), "::new(23);")]
++            /// let bar = 42;
++            /// let max_foo = foo.fetch_max(bar, Ordering::SeqCst).max(bar);
++            /// assert!(max_foo == 42);
++            /// ```
++            #[inline]
++            #[stable(feature = "atomic_min_max", since = "1.45.0")]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn fetch_max(&self, val: $int_type, order: Ordering) -> $int_type {
++                let dst = self.v.get();
++                let mut old: $int_type;
++
++                unsafe {
++                    crate::arch::asm!(
++                        "mrs    {primask}, PRIMASK",
++                        "cpsid  i",
++                        "dmb",
++                        $load_asm,
++                        "cmp    {old}, {new}",
++                        $cond_branch_greater_asm,
++                        $store_asm,
++                        "dsb",
++                        "dmb",
++                        "1:",
++                        "cmp    {primask}, #0",
++                        "bne    2f",
++                        "cpsie  i",
++                        "2:",
++                        primask  = out(reg) _,
++                        old      = out(reg) old,
++                        dst      = in(reg)  dst,
++                        new      = in(reg)  val,
++                        options(nostack)
++                    );
++                }
++
++                old
++            }
++
++            /// Minimum with the current value.
++            ///
++            /// Finds the minimum of the current value and the argument `val`, and
++            /// sets the new value to the result.
++            ///
++            /// Returns the previous value.
++            ///
++            /// `fetch_min` takes an [`Ordering`] argument which describes the memory ordering
++            /// of this operation. All ordering modes are possible. Note that using
++            /// [`Acquire`] makes the store part of this operation [`Relaxed`], and
++            /// using [`Release`] makes the load part [`Relaxed`].
++            ///
++            /// **Note**: This method is only available on platforms that support atomic operations on
++            #[doc = concat!("[`", $s_int_type, "`].")]
++            ///
++            /// # Examples
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let foo = ", stringify!($atomic_type), "::new(23);")]
++            /// assert_eq!(foo.fetch_min(42, Ordering::Relaxed), 23);
++            /// assert_eq!(foo.load(Ordering::Relaxed), 23);
++            /// assert_eq!(foo.fetch_min(22, Ordering::Relaxed), 23);
++            /// assert_eq!(foo.load(Ordering::Relaxed), 22);
++            /// ```
++            ///
++            /// If you want to obtain the minimum value in one step, you can use the following:
++            ///
++            /// ```
++            #[doc = concat!($extra_feature, "use std::sync::atomic::{", stringify!($atomic_type), ", Ordering};")]
++            ///
++            #[doc = concat!("let foo = ", stringify!($atomic_type), "::new(23);")]
++            /// let bar = 12;
++            /// let min_foo = foo.fetch_min(bar, Ordering::SeqCst).min(bar);
++            /// assert_eq!(min_foo, 12);
++            /// ```
++            #[inline]
++            #[stable(feature = "atomic_min_max", since = "1.45.0")]
++            #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
++            pub fn fetch_min(&self, val: $int_type, order: Ordering) -> $int_type {
++                let dst = self.v.get();
++                let mut old: $int_type;
++
++                unsafe {
++                    crate::arch::asm!(
++                        "mrs    {primask}, PRIMASK",
++                        "cpsid  i",
++                        "dmb",
++                        $load_asm,
++                        "cmp    {old}, {new}",
++                        $cond_branch_less_asm,
++                        $store_asm,
++                        "dsb",
++                        "dmb",
++                        "1:",
++                        "cmp    {primask}, #0",
++                        "bne    2f",
++                        "cpsie  i",
++                        "2:",
++                        primask  = out(reg) _,
++                        old      = out(reg) old,
++                        dst      = in(reg)  dst,
++                        new      = in(reg)  val,
++                        options(nostack)
++                    );
++                }
++
++                old
++            }
++        }
++    }
++}
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "8")))]
++atomic_int_armv6m! {
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    "i8",
++    "",
++    "ldrb {old}, [{dst}]",
++    "strb {new}, [{dst}]",
++    "bge 1f",
++    "ble 1f",
++    i8 AtomicI8
++}
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "8")))]
++atomic_int_armv6m! {
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    "u8",
++    "",
++    "ldrb {old}, [{dst}]",
++    "strb {new}, [{dst}]",
++    "bhs 1f",
++    "bls 1f",
++    u8 AtomicU8
++}
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "16")))]
++atomic_int_armv6m! {
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    "i16",
++    "",
++    "ldrh {old}, [{dst}]",
++    "strh {new}, [{dst}]",
++    "bge 1f",
++    "ble 1f",
++    i16 AtomicI16
++}
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "16")))]
++atomic_int_armv6m! {
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    "u16",
++    "",
++    "ldrh {old}, [{dst}]",
++    "strh {new}, [{dst}]",
++    "bhs 1f",
++    "bls 1f",
++    u16 AtomicU16
++}
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "32")))]
++atomic_int_armv6m! {
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    "i32",
++    "",
++    "ldr {old}, [{dst}]",
++    "str {new}, [{dst}]",
++    "bge 1f",
++    "ble 1f",
++    i32 AtomicI32
++}
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "32")))]
++atomic_int_armv6m! {
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    "u32",
++    "",
++    "ldr {old}, [{dst}]",
++    "str {new}, [{dst}]",
++    "bhs 1f",
++    "bls 1f",
++    u32 AtomicU32
++}
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "ptr")))]
++atomic_int_armv6m! {
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    "isize",
++    "",
++    "ldr {old}, [{dst}]",
++    "str {new}, [{dst}]",
++    "bge 1f",
++    "ble 1f",
++    isize AtomicIsize
++}
++
++#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "ptr")))]
++atomic_int_armv6m! {
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    stable(feature = "integer_atomics_stable", since = "1.34.0"),
++    "usize",
++    "",
++    "ldr {old}, [{dst}]",
++    "str {new}, [{dst}]",
++    "bhs 1f",
++    "bls 1f",
++    usize AtomicUsize
++}
