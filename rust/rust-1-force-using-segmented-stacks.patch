@@ -1,27 +1,29 @@
-From 35eb5ced7f47222e02105850c1d9a6f5df2efe15 Mon Sep 17 00:00:00 2001
+From c97a8117398647da481d98b84c5ffb88296e1514 Mon Sep 17 00:00:00 2001
 From: Zhiyao Ma <zhiyao.ma.98@gmail.com>
 Date: Wed, 11 Sep 2024 19:54:33 -0400
 Subject: [PATCH] Force using segmented stacks.
 
 ---
- compiler/rustc_codegen_llvm/src/attributes.rs        | 8 ++++++++
- compiler/rustc_codegen_ssa/src/codegen_attrs.rs      | 1 +
- compiler/rustc_feature/src/builtin_attrs.rs          | 1 +
- compiler/rustc_middle/src/middle/codegen_fn_attrs.rs | 2 ++
- compiler/rustc_span/src/symbol.rs                    | 1 +
- 5 files changed, 13 insertions(+)
+ compiler/rustc_codegen_llvm/src/attributes.rs        | 10 ++++++++++
+ compiler/rustc_codegen_ssa/src/codegen_attrs.rs      |  1 +
+ compiler/rustc_feature/src/builtin_attrs.rs          |  1 +
+ compiler/rustc_middle/src/middle/codegen_fn_attrs.rs |  2 ++
+ compiler/rustc_span/src/symbol.rs                    |  1 +
+ 5 files changed, 15 insertions(+)
 
 diff --git a/compiler/rustc_codegen_llvm/src/attributes.rs b/compiler/rustc_codegen_llvm/src/attributes.rs
-index e7669470026..526f7ed9b98 100644
+index e7669470026..5f3a9edf12f 100644
 --- a/compiler/rustc_codegen_llvm/src/attributes.rs
 +++ b/compiler/rustc_codegen_llvm/src/attributes.rs
-@@ -513,6 +513,14 @@ pub fn from_fn_attrs<'ll, 'tcx>(
+@@ -513,6 +513,16 @@ pub fn from_fn_attrs<'ll, 'tcx>(
          to_add.push(llvm::CreateAttrStringValue(cx.llcx, "target-features", &target_features));
      }
  
 +    // Force segmented stack.
 +    if cx.sess().target.llvm_target.contains("thumbv7em-none-eabi")
-+      || cx.sess().target.llvm_target.contains("armv7em-none-eabi") {
++      || cx.sess().target.llvm_target.contains("armv7em-none-eabi")
++      || cx.sess().target.llvm_target.contains("thumbv6m-none-eabi")
++      || cx.sess().target.llvm_target.contains("armv6m-none-eabi") {
 +        if !codegen_fn_attrs.flags.contains(CodegenFnAttrFlags::NO_SPLIT_STACK) {
 +            to_add.push(llvm::CreateAttrString(cx.llcx, "split-stack"));
 +        }
@@ -80,5 +82,5 @@ index 99d80eda374..401a055ec59 100644
          no_start,
          no_std,
 -- 
-2.39.3 (Apple Git-146)
+2.39.5 (Apple Git-154)
 
