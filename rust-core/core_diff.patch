@@ -1,6 +1,6 @@
 diff --color -urN core_backup/src/panic/panic_info.rs core/src/panic/panic_info.rs
---- core_backup/src/panic/panic_info.rs	2025-03-17 16:51:34
-+++ core/src/panic/panic_info.rs	2025-03-18 22:37:00
+--- core_backup/src/panic/panic_info.rs	2025-03-19 00:23:31
++++ core/src/panic/panic_info.rs	2025-04-01 15:13:18
 @@ -11,9 +11,7 @@
  #[lang = "panic_info"]
  #[stable(feature = "panic_hooks", since = "1.10.0")]
@@ -104,8 +104,8 @@ diff --color -urN core_backup/src/panic/panic_info.rs core/src/panic/panic_info.
 +    fn fmt(&self, _formatter: &mut fmt::Formatter<'_>) -> fmt::Result { Ok(()) }
  }
 diff --color -urN core_backup/src/panic.rs core/src/panic.rs
---- core_backup/src/panic.rs	2025-03-17 16:51:34
-+++ core/src/panic.rs	2025-03-18 22:37:00
+--- core_backup/src/panic.rs	2025-03-19 00:23:31
++++ core/src/panic.rs	2025-04-01 15:13:18
 @@ -40,7 +40,7 @@
      ($fmt:expr, $($arg:tt)+) => ({
          // Semicolon to prevent temporaries inside the formatting machinery from
@@ -134,8 +134,8 @@ diff --color -urN core_backup/src/panic.rs core/src/panic.rs
  }
  
 diff --color -urN core_backup/src/panicking.rs core/src/panicking.rs
---- core_backup/src/panicking.rs	2025-03-17 16:51:34
-+++ core/src/panicking.rs	2025-03-18 22:37:00
+--- core_backup/src/panicking.rs	2025-03-19 00:23:31
++++ core/src/panicking.rs	2025-04-01 15:13:18
 @@ -29,7 +29,7 @@
  )]
  
@@ -267,19 +267,416 @@ diff --color -urN core_backup/src/panicking.rs core/src/panicking.rs
  
  #[cfg_attr(not(feature = "panic_immediate_abort"), inline(never), cold)]
 diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
---- core_backup/src/sync/atomic.rs	2025-03-17 16:51:34
-+++ core/src/sync/atomic.rs	2025-03-17 18:11:55
-@@ -3780,3 +3780,2076 @@
+--- core_backup/src/sync/atomic.rs	2025-03-19 00:23:31
++++ core/src/sync/atomic.rs	2025-04-01 15:13:18
+@@ -662,6 +662,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "8")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn swap(&self, val: bool, order: Ordering) -> bool {
+@@ -723,6 +724,7 @@
+         since = "1.50.0",
+         note = "Use `compare_exchange` or `compare_exchange_weak` instead"
+     )]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "8")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn compare_and_swap(&self, current: bool, new: bool, order: Ordering) -> bool {
+@@ -771,6 +773,7 @@
+     #[inline]
+     #[stable(feature = "extended_compare_and_swap", since = "1.10.0")]
+     #[doc(alias = "compare_and_swap")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "8")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn compare_exchange(
+@@ -853,6 +856,7 @@
+     #[inline]
+     #[stable(feature = "extended_compare_and_swap", since = "1.10.0")]
+     #[doc(alias = "compare_and_swap")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "8")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn compare_exchange_weak(
+@@ -909,6 +913,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "8")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn fetch_and(&self, val: bool, order: Ordering) -> bool {
+@@ -951,6 +956,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "8")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn fetch_nand(&self, val: bool, order: Ordering) -> bool {
+@@ -1003,6 +1009,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "8")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn fetch_or(&self, val: bool, order: Ordering) -> bool {
+@@ -1044,6 +1051,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "8")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn fetch_xor(&self, val: bool, order: Ordering) -> bool {
+@@ -1081,6 +1089,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "atomic_bool_fetch_not", since = "1.81.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "8")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn fetch_not(&self, order: Ordering) -> bool {
+@@ -1167,6 +1176,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "atomic_fetch_update", since = "1.53.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "8")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn fetch_update<F>(
+@@ -1482,6 +1492,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "rust1", since = "1.0.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn swap(&self, ptr: *mut T, order: Ordering) -> *mut T {
+@@ -1538,6 +1549,7 @@
+         since = "1.50.0",
+         note = "Use `compare_exchange` or `compare_exchange_weak` instead"
+     )]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn compare_and_swap(&self, current: *mut T, new: *mut T, order: Ordering) -> *mut T {
+@@ -1578,6 +1590,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "extended_compare_and_swap", since = "1.10.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn compare_exchange(
+@@ -1627,6 +1640,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "extended_compare_and_swap", since = "1.10.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn compare_exchange_weak(
+@@ -1696,6 +1710,7 @@
+     /// ```
+     #[inline]
+     #[stable(feature = "atomic_fetch_update", since = "1.53.0")]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+     pub fn fetch_update<F>(
+@@ -1751,6 +1766,7 @@
+     /// assert_eq!(atom.load(Ordering::Relaxed).addr(), 8);
+     /// ```
+     #[inline]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+@@ -1796,6 +1812,7 @@
+     /// assert!(core::ptr::eq(atom.load(Ordering::Relaxed), &array[0]));
+     /// ```
+     #[inline]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+@@ -1831,6 +1848,7 @@
+     /// assert_eq!(atom.load(Ordering::Relaxed).addr(), 1);
+     /// ```
+     #[inline]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+@@ -1866,6 +1884,7 @@
+     /// assert_eq!(atom.load(Ordering::Relaxed).addr(), 0);
+     /// ```
+     #[inline]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+@@ -1917,6 +1936,7 @@
+     /// assert_eq!(tagged.map_addr(|p| p & !1), pointer);
+     /// ```
+     #[inline]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+@@ -1967,6 +1987,7 @@
+     /// assert_eq!(untagged, pointer);
+     /// ```
+     #[inline]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+@@ -2015,6 +2036,7 @@
+     /// assert_eq!(atom.load(Ordering::Relaxed).addr() & 1, 1);
+     /// ```
+     #[inline]
++    #[cfg(not(target_os = "hopter"))]
+     #[cfg(target_has_atomic = "ptr")]
+     #[unstable(feature = "strict_provenance_atomic_ptr", issue = "99108")]
+     #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+@@ -3029,7 +3051,7 @@
+ 
+ #[cfg(target_has_atomic_load_store = "8")]
+ atomic_int! {
+-    cfg(target_has_atomic = "8"),
++    cfg(all(target_has_atomic = "8", not(target_os = "hopter"))),
+     cfg(target_has_atomic_equal_alignment = "8"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+@@ -3047,7 +3069,7 @@
+ }
+ #[cfg(target_has_atomic_load_store = "8")]
+ atomic_int! {
+-    cfg(target_has_atomic = "8"),
++    cfg(all(target_has_atomic = "8", not(target_os = "hopter"))),
+     cfg(target_has_atomic_equal_alignment = "8"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+@@ -3065,7 +3087,7 @@
+ }
+ #[cfg(target_has_atomic_load_store = "16")]
+ atomic_int! {
+-    cfg(target_has_atomic = "16"),
++    cfg(all(target_has_atomic = "16", not(target_os = "hopter"))),
+     cfg(target_has_atomic_equal_alignment = "16"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+@@ -3083,7 +3105,7 @@
+ }
+ #[cfg(target_has_atomic_load_store = "16")]
+ atomic_int! {
+-    cfg(target_has_atomic = "16"),
++    cfg(all(target_has_atomic = "16", not(target_os = "hopter"))),
+     cfg(target_has_atomic_equal_alignment = "16"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+@@ -3101,7 +3123,7 @@
+ }
+ #[cfg(target_has_atomic_load_store = "32")]
+ atomic_int! {
+-    cfg(target_has_atomic = "32"),
++    cfg(all(target_has_atomic = "32", not(target_os = "hopter"))),
+     cfg(target_has_atomic_equal_alignment = "32"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+@@ -3119,7 +3141,7 @@
+ }
+ #[cfg(target_has_atomic_load_store = "32")]
+ atomic_int! {
+-    cfg(target_has_atomic = "32"),
++    cfg(all(target_has_atomic = "32", not(target_os = "hopter"))),
+     cfg(target_has_atomic_equal_alignment = "32"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+@@ -3137,7 +3159,7 @@
+ }
+ #[cfg(target_has_atomic_load_store = "64")]
+ atomic_int! {
+-    cfg(target_has_atomic = "64"),
++    cfg(all(target_has_atomic = "64", not(target_os = "hopter"))),
+     cfg(target_has_atomic_equal_alignment = "64"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+@@ -3155,7 +3177,7 @@
+ }
+ #[cfg(target_has_atomic_load_store = "64")]
+ atomic_int! {
+-    cfg(target_has_atomic = "64"),
++    cfg(all(target_has_atomic = "64", not(target_os = "hopter"))),
+     cfg(target_has_atomic_equal_alignment = "64"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+     stable(feature = "integer_atomics_stable", since = "1.34.0"),
+@@ -3173,7 +3195,7 @@
+ }
+ #[cfg(target_has_atomic_load_store = "128")]
+ atomic_int! {
+-    cfg(target_has_atomic = "128"),
++    cfg(all(target_has_atomic = "128", not(target_os = "hopter"))),
+     cfg(target_has_atomic_equal_alignment = "128"),
+     unstable(feature = "integer_atomics", issue = "99069"),
+     unstable(feature = "integer_atomics", issue = "99069"),
+@@ -3191,7 +3213,7 @@
+ }
+ #[cfg(target_has_atomic_load_store = "128")]
+ atomic_int! {
+-    cfg(target_has_atomic = "128"),
++    cfg(all(target_has_atomic = "128", not(target_os = "hopter"))),
+     cfg(target_has_atomic_equal_alignment = "128"),
+     unstable(feature = "integer_atomics", issue = "99069"),
+     unstable(feature = "integer_atomics", issue = "99069"),
+@@ -3213,7 +3235,7 @@
+     ( $($target_pointer_width:literal $align:literal)* ) => { $(
+         #[cfg(target_pointer_width = $target_pointer_width)]
+         atomic_int! {
+-            cfg(target_has_atomic = "ptr"),
++            cfg(all(target_has_atomic = "ptr", not(target_os = "hopter"))),
+             cfg(target_has_atomic_equal_alignment = "ptr"),
+             stable(feature = "rust1", since = "1.0.0"),
+             stable(feature = "extended_compare_and_swap", since = "1.10.0"),
+@@ -3231,7 +3253,7 @@
+         }
+         #[cfg(target_pointer_width = $target_pointer_width)]
+         atomic_int! {
+-            cfg(target_has_atomic = "ptr"),
++            cfg(all(target_has_atomic = "ptr", not(target_os = "hopter"))),
+             cfg(target_has_atomic_equal_alignment = "ptr"),
+             stable(feature = "rust1", since = "1.0.0"),
+             stable(feature = "extended_compare_and_swap", since = "1.10.0"),
+@@ -3278,6 +3300,7 @@
+ }
+ 
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ fn strongest_failure_ordering(order: Ordering) -> Ordering {
+     match order {
+@@ -3320,6 +3343,7 @@
+ }
+ 
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_swap<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3337,6 +3361,7 @@
+ 
+ /// Returns the previous value (like __sync_fetch_and_add).
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_add<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3354,6 +3379,7 @@
+ 
+ /// Returns the previous value (like __sync_fetch_and_sub).
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_sub<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3370,6 +3396,7 @@
+ }
+ 
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_compare_exchange<T: Copy>(
+@@ -3405,6 +3432,7 @@
+ }
+ 
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_compare_exchange_weak<T: Copy>(
+@@ -3440,6 +3468,7 @@
+ }
+ 
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_and<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3456,6 +3485,7 @@
+ }
+ 
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_nand<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3472,6 +3502,7 @@
+ }
+ 
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_or<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3488,6 +3519,7 @@
+ }
+ 
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_xor<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3505,6 +3537,7 @@
+ 
+ /// returns the max value (signed comparison)
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_max<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3522,6 +3555,7 @@
+ 
+ /// returns the min value (signed comparison)
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_min<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3539,6 +3573,7 @@
+ 
+ /// returns the max value (unsigned comparison)
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_umax<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3556,6 +3591,7 @@
+ 
+ /// returns the min value (unsigned comparison)
+ #[inline]
++#[cfg(not(target_os = "hopter"))]
+ #[cfg(target_has_atomic)]
+ #[cfg_attr(miri, track_caller)] // even without panics, this helps for Miri backtraces
+ unsafe fn atomic_umin<T: Copy>(dst: *mut T, val: T, order: Ordering) -> T {
+@@ -3779,4 +3815,2011 @@
+ #[deprecated(since = "1.51.0", note = "use hint::spin_loop instead")]
  pub fn spin_loop_hint() {
      spin_loop()
- }
++}
 +
 +
 +// ******************************************
 +// * Experimental Implementation for ARMv6M *
 +// ******************************************
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "8")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +impl AtomicBool {
 +    /// Stores a value into the bool, returning the previous value.
 +    ///
@@ -313,11 +710,8 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldrb   {old}, [{dst}]",
 +                "strb   {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "cmp    {primask}, #0",
 +                "bne    1f",
 +                "cpsie  i",
@@ -389,13 +783,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldrb   {old}, [{dst}]",
 +                "cmp    {old}, {cur}",
 +                "bne    1f",
 +                "strb   {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "1:",
 +                "cmp    {primask}, #0",
 +                "bne    2f",
@@ -509,13 +900,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldrb   {old}, [{dst}]",
 +                "mov    {new}, {old}",
 +                "ands   {new}, {new}, {val}",
 +                "strb   {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "cmp    {primask}, #0",
 +                "bne    1f",
 +                "cpsie  i",
@@ -628,13 +1016,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldrb   {old}, [{dst}]",
 +                "mov    {new}, {old}",
 +                "orrs   {new}, {new}, {val}",
 +                "strb   {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "cmp    {primask}, #0",
 +                "bne    1f",
 +                "cpsie  i",
@@ -695,13 +1080,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldrb   {old}, [{dst}]",
 +                "mov    {new}, {old}",
 +                "eors   {new}, {new}, {val}",
 +                "strb   {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "cmp    {primask}, #0",
 +                "bne    1f",
 +                "cpsie  i",
@@ -818,7 +1200,7 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    }
 +}
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "ptr")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +impl<T> AtomicPtr<T> {
 +    /// Stores a value into the pointer, returning the previous value.
 +    ///
@@ -853,11 +1235,8 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldr    {old}, [{dst}]",
 +                "str    {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "cmp    {primask}, #0",
 +                "bne    1f",
 +                "cpsie  i",
@@ -920,13 +1299,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldr    {old}, [{dst}]",
 +                "cmp    {old}, {cur}",
 +                "bne    1f",
 +                "str    {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "1:",
 +                "cmp    {primask}, #0",
 +                "bne    2f",
@@ -1190,13 +1566,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldr    {old}, [{dst}]",
 +                "mov    {new}, {old}",
 +                "adds   {new}, {new}, {val}",
 +                "str    {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "cmp    {primask}, #0",
 +                "bne    1f",
 +                "cpsie  i",
@@ -1250,13 +1623,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldr    {old}, [{dst}]",
 +                "mov    {new}, {old}",
 +                "subs   {new}, {new}, {val}",
 +                "str    {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "cmp    {primask}, #0",
 +                "bne    1f",
 +                "cpsie  i",
@@ -1326,13 +1696,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldr    {old}, [{dst}]",
 +                "mov    {new}, {old}",
 +                "orrs   {new}, {new}, {val}",
 +                "str    {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "cmp    {primask}, #0",
 +                "bne    1f",
 +                "cpsie  i",
@@ -1401,13 +1768,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldr    {old}, [{dst}]",
 +                "mov    {new}, {old}",
 +                "ands   {new}, {new}, {val}",
 +                "str    {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "cmp    {primask}, #0",
 +                "bne    1f",
 +                "cpsie  i",
@@ -1474,13 +1838,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +            crate::arch::asm!(
 +                "mrs    {primask}, PRIMASK",
 +                "cpsid  i",
-+                "dmb",
 +                "ldr    {old}, [{dst}]",
 +                "mov    {new}, {old}",
 +                "eors   {new}, {new}, {val}",
 +                "str    {new}, [{dst}]",
-+                "dsb",
-+                "dmb",
 +                "cmp    {primask}, #0",
 +                "bne    1f",
 +                "cpsie  i",
@@ -1498,7 +1859,7 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    }
 +}
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "ptr")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +macro_rules! atomic_int_armv6m {
 +    ($stable:meta,
 +     $stable_cxchg:meta,
@@ -1541,11 +1902,8 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +                    crate::arch::asm!(
 +                        "mrs    {primask}, PRIMASK",
 +                        "cpsid  i",
-+                        "dmb",
 +                        $load_asm,
 +                        $store_asm,
-+                        "dsb",
-+                        "dmb",
 +                        "cmp    {primask}, #0",
 +                        "bne    1f",
 +                        "cpsie  i",
@@ -1614,13 +1972,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +                    crate::arch::asm!(
 +                        "mrs    {primask}, PRIMASK",
 +                        "cpsid  i",
-+                        "dmb",
 +                        $load_asm,
 +                        "cmp    {old}, {cur}",
 +                        "bne    1f",
 +                        $store_asm,
-+                        "dsb",
-+                        "dmb",
 +                        "1:",
 +                        "cmp    {primask}, #0",
 +                        "bne    2f",
@@ -1721,13 +2076,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +                    crate::arch::asm!(
 +                        "mrs    {primask}, PRIMASK",
 +                        "cpsid  i",
-+                        "dmb",
 +                        $load_asm,
 +                        "mov    {new}, {old}",
 +                        "adds   {new}, {new}, {val}",
 +                        $store_asm,
-+                        "dsb",
-+                        "dmb",
 +                        "cmp    {primask}, #0",
 +                        "bne    1f",
 +                        "cpsie  i",
@@ -1776,13 +2128,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +                    crate::arch::asm!(
 +                        "mrs    {primask}, PRIMASK",
 +                        "cpsid  i",
-+                        "dmb",
 +                        $load_asm,
 +                        "mov    {new}, {old}",
 +                        "subs   {new}, {new}, {val}",
 +                        $store_asm,
-+                        "dsb",
-+                        "dmb",
 +                        "cmp    {primask}, #0",
 +                        "bne    1f",
 +                        "cpsie  i",
@@ -1834,13 +2183,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +                    crate::arch::asm!(
 +                        "mrs    {primask}, PRIMASK",
 +                        "cpsid  i",
-+                        "dmb",
 +                        $load_asm,
 +                        "mov    {new}, {old}",
 +                        "ands   {new}, {new}, {val}",
 +                        $store_asm,
-+                        "dsb",
-+                        "dmb",
 +                        "cmp    {primask}, #0",
 +                        "bne    1f",
 +                        "cpsie  i",
@@ -1892,14 +2238,11 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +                    crate::arch::asm!(
 +                        "mrs    {primask}, PRIMASK",
 +                        "cpsid  i",
-+                        "dmb",
 +                        $load_asm,
 +                        "mov    {new}, {old}",
 +                        "ands   {new}, {new}, {val}",
 +                        "mvns   {new}, {new}",
 +                        $store_asm,
-+                        "dsb",
-+                        "dmb",
 +                        "cmp    {primask}, #0",
 +                        "bne    1f",
 +                        "cpsie  i",
@@ -1951,13 +2294,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +                    crate::arch::asm!(
 +                        "mrs    {primask}, PRIMASK",
 +                        "cpsid  i",
-+                        "dmb",
 +                        $load_asm,
 +                        "mov    {new}, {old}",
 +                        "orrs   {new}, {new}, {val}",
 +                        $store_asm,
-+                        "dsb",
-+                        "dmb",
 +                        "cmp    {primask}, #0",
 +                        "bne    1f",
 +                        "cpsie  i",
@@ -2009,13 +2349,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +                    crate::arch::asm!(
 +                        "mrs    {primask}, PRIMASK",
 +                        "cpsid  i",
-+                        "dmb",
 +                        $load_asm,
 +                        "mov    {new}, {old}",
 +                        "eors   {new}, {new}, {val}",
 +                        $store_asm,
-+                        "dsb",
-+                        "dmb",
 +                        "cmp    {primask}, #0",
 +                        "bne    1f",
 +                        "cpsie  i",
@@ -2138,13 +2475,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +                    crate::arch::asm!(
 +                        "mrs    {primask}, PRIMASK",
 +                        "cpsid  i",
-+                        "dmb",
 +                        $load_asm,
 +                        "cmp    {old}, {new}",
 +                        $cond_branch_greater_asm,
 +                        $store_asm,
-+                        "dsb",
-+                        "dmb",
 +                        "1:",
 +                        "cmp    {primask}, #0",
 +                        "bne    2f",
@@ -2209,13 +2543,10 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +                    crate::arch::asm!(
 +                        "mrs    {primask}, PRIMASK",
 +                        "cpsid  i",
-+                        "dmb",
 +                        $load_asm,
 +                        "cmp    {old}, {new}",
 +                        $cond_branch_less_asm,
 +                        $store_asm,
-+                        "dsb",
-+                        "dmb",
 +                        "1:",
 +                        "cmp    {primask}, #0",
 +                        "bne    2f",
@@ -2235,7 +2566,7 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    }
 +}
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "8")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +atomic_int_armv6m! {
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
@@ -2249,7 +2580,7 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    i8 AtomicI8
 +}
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "8")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +atomic_int_armv6m! {
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
@@ -2263,7 +2594,7 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    u8 AtomicU8
 +}
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "16")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +atomic_int_armv6m! {
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
@@ -2277,7 +2608,7 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    i16 AtomicI16
 +}
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "16")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +atomic_int_armv6m! {
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
@@ -2291,7 +2622,7 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    u16 AtomicU16
 +}
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "32")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +atomic_int_armv6m! {
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
@@ -2305,7 +2636,7 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    i32 AtomicI32
 +}
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "32")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +atomic_int_armv6m! {
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
@@ -2319,7 +2650,7 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    u32 AtomicU32
 +}
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "ptr")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +atomic_int_armv6m! {
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
@@ -2333,7 +2664,7 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    isize AtomicIsize
 +}
 +
-+#[cfg(all(target_arch = "arm", target_os = "none", target_abi = "eabi", not(target_has_atomic = "ptr")))]
++#[cfg(all(target_arch = "arm", target_os = "hopter", target_abi = "eabi"))]
 +atomic_int_armv6m! {
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
 +    stable(feature = "integer_atomics_stable", since = "1.34.0"),
@@ -2345,4 +2676,4 @@ diff --color -urN core_backup/src/sync/atomic.rs core/src/sync/atomic.rs
 +    "bhs 1f",
 +    "bls 1f",
 +    usize AtomicUsize
-+}
+ }

@@ -39,13 +39,11 @@ Here we summarize the modification for each part of the compiler toolchain.
 - Force every Rust function to have the segmented stack function prologue by tagging the `split-stack` attribute to every function during LLVM IR generation. `[naked]` functions are not affected as expected. Also provide the `[no_split_stack]` attribute to supress segmented stack prologue generation for a function.
 - Support deferred forced stack unwinding. Increment a global counter before executing the body of a drop function and decrement the counter after executing the body. The counter is located at a fixed address 0x2000_0004. Invoke the stack unwinder at the end of a drop function if the counter is zero and the unwind pending flag located at 0x2000_0008 is set to true.
 - Never tag `nounwind` attribute to any function during LLVM IR generation and prevent performing optimization when calling `nounwind` functions.
+- Change the Rust target description for the LLVM target `thumbv6m-none-eabi`. It enables the `target_has_atomic` family feature gates. The `target_os` is hard coded to `"hopter"`. NOTE: the Rust `target_os` remains to be `"none"` for the LLVM target `thumbv7em-none-eabi`. In the modification to the `core` library, we need to distinguish between compiling for `thumbv6m` and `thumbv7em`. However, the Rust compiler currently has no feature gate that differentiates between these two architectures. Our patched code currently looks at the `target_os` value to tell the difference.
 
 **Rust `core` Library**
 - Strip away unnecessary fields in `PanicInfo` so that the panic handling infrastructure can have minimal code storage overhead.
 - Provide atomic methods (e.g., `compare_exchange`, `fetch_add`) for atomic types on ARMv6M architectures.
-
-**Rust `alloc` Library**
-- Enable `alloc::sync` for ARMv6M architectures.
 
 # Build the Modified Compiler Toolchain
 
@@ -218,28 +216,6 @@ cd core
 Apply the patch.
 ```
 patch -p1 < $PATCHES_DIR/rust-core/core_diff.patch
-```
-
-## Rust `alloc` Library
-
-Enter the directory containing the Rust `alloc` libray within the installed Rust compiler toolchain.
-```
-cd $RUST_INSTALL_DIR/lib/rustlib/src/rust/library/
-```
-
-Backup the original `alloc` library source code.
-```
-cp -r alloc alloc_backup
-```
-
-Enter the `alloc` library.
-```
-cd alloc
-```
-
-Apply the patch.
-```
-patch -p1 < $PATCHES_DIR/rust-alloc/alloc_diff.patch
 ```
 
 ## Register the Toolchain

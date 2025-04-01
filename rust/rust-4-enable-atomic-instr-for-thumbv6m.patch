@@ -1,0 +1,33 @@
+From a650639338ab0542ed1e48ce6e5611e6f531314e Mon Sep 17 00:00:00 2001
+From: Zhiyao Ma <zhiyao.ma.98@gmail.com>
+Date: Tue, 1 Apr 2025 19:25:13 -0400
+Subject: [PATCH] Enable atomic instructions for Thumbv6m.
+
+---
+ compiler/rustc_target/src/spec/targets/thumbv6m_none_eabi.rs | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/compiler/rustc_target/src/spec/targets/thumbv6m_none_eabi.rs b/compiler/rustc_target/src/spec/targets/thumbv6m_none_eabi.rs
+index a0fa58d8175..8dcf0ded048 100644
+--- a/compiler/rustc_target/src/spec/targets/thumbv6m_none_eabi.rs
++++ b/compiler/rustc_target/src/spec/targets/thumbv6m_none_eabi.rs
+@@ -17,14 +17,13 @@ pub fn target() -> Target {
+ 
+         options: TargetOptions {
+             abi: "eabi".into(),
++            os: "hopter".into(),
+             // The ARMv6-M architecture doesn't support unaligned loads/stores so we disable them
+             // with +strict-align.
+             // Also force-enable 32-bit atomics, which allows the use of atomic load/store only.
+             // The resulting atomics are ABI incompatible with atomics backed by libatomic.
+             features: "+strict-align,+atomics-32".into(),
+-            // There are no atomic CAS instructions available in the instruction set of the ARMv6-M
+-            // architecture
+-            atomic_cas: false,
++            max_atomic_width: Some(32),
+             ..base::thumb::opts()
+         },
+     }
+-- 
+2.39.5 (Apple Git-154)
+
