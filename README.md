@@ -31,7 +31,7 @@ That's it.
 Here we summarize the modification for each part of the compiler toolchain.
 
 **LLVM**
-- Support segmented stack function prologue generation for thumbv7 targets. The prologue examines the free stack space before executing the function body. If the free space is insufficient, the prologue invokes the kernel through SVC. The kernel may decide to extend the stack by making a new memory allocation.
+- Support segmented stack function prologue generation for `thumbv7em` and `thumbv6m` targets. The prologue examines the free stack space before executing the function body. If the free space is insufficient, the prologue invokes the kernel through SVC. The kernel may decide to extend the stack by making a new memory allocation.
 - Generate a slightly different segmented stack function prologue for `core::ptr::drop` functions. If a task exceeds its stack usage allowance, the kernel will kill it by forcing an unwinding. However, the unwinding must not be initiated from a drop function. The kernel can recognize that the function causing an overflow is a drop function, thus defer the forced unwinding.
 - Disable `nounwind` attribute deduction. Since any function can potentially cause the stack allowance to be exceeded, any function may initiate a forced unwinding. This breaks the assumption of the compiler when automatically deducing `nounwind` attributes, so we disable it.
 
