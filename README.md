@@ -1,3 +1,5 @@
+<img src="./.github/assets/hopter-logo.png" alt="Hopter's Logo" width="400"/>
+
 This repo contains patches for LLVM, `rustc`, and the `core` library of Rust to include additional features to support [Hopter OS](https://github.com/hopter-project/hopter). The latest patched version is 1.81.0 released on Sep.5th, 2024. The easiest way to get started is downloading a prebuilt patched version from the release page. The rest describes the customization made to the compiler toolchain and the building procedure.
 
 # Quick Start
